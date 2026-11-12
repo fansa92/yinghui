@@ -15,6 +15,7 @@ import 'package:yinghui/data/repositories/music_repository.dart';
 import 'package:yinghui/data/repositories/playback_decision.dart';
 import 'package:yinghui/data/repositories/playback_store.dart';
 import 'package:yinghui/data/repositories/video_repository.dart';
+import 'package:yinghui/features/music/cover_image.dart';
 import 'package:yinghui/features/player/now_playing_page.dart';
 import 'package:yinghui/features/player/player_service.dart';
 import 'package:yinghui/features/player/video_player_page.dart';
@@ -179,6 +180,95 @@ void main() {
       expect(find.byKey(const ValueKey('desktop-two-column')), findsOneWidget);
     });
 
+    /// Rect of the big cover (the queue rows use 48px covers).
+    Rect coverRect(WidgetTester tester, double size) => tester.getRect(
+      find.byWidgetPredicate((w) => w is CoverImage && w.size == size),
+    );
+
+    /// The play/pause button, by its icon.
+    Finder playButton() => find.byWidgetPredicate(
+      (w) =>
+          w is Icon &&
+          (w.icon == Icons.pause_circle_filled ||
+              w.icon == Icons.play_circle_filled),
+    );
+
+    testWidgets('desktop: controls sit under the cover, queue on the right', (
+      tester,
+    ) async {
+      setSurface(tester, 1440, 900);
+      final player = await playingPlayer();
+      addTearDown(player.dispose);
+      final settings = await settingsWith(MusicPlayerStyle.standard);
+      await pumpPage(tester, player: player, settings: settings);
+
+      final cover = coverRect(tester, 340);
+      // Seek slider + volume slider both render below the cover.
+      for (final e in find.byType(Slider).evaluate()) {
+        expect(
+          tester.getRect(find.byWidget(e.widget)).top,
+          greaterThan(cover.bottom),
+        );
+      }
+      // Play button below the cover, in the left column (screen
+      // centre is 720 at this width; the centred 1000px content
+      // starts at x=220, so the left column ends well left of it).
+      final play = tester.getRect(playButton());
+      expect(play.top, greaterThan(cover.bottom));
+      expect(tester.getCenter(playButton()).dx, lessThan(720));
+      // Up next stays in the right column.
+      expect(tester.getCenter(find.text('接下来播放')).dx, greaterThan(720));
+    });
+
+    testWidgets('desktop: appleMusic controls under the cover', (tester) async {
+      setSurface(tester, 1440, 900);
+      final player = await playingPlayer();
+      addTearDown(player.dispose);
+      final settings = await settingsWith(MusicPlayerStyle.appleMusic);
+      await pumpPage(tester, player: player, settings: settings);
+
+      final cover = coverRect(tester, 340);
+      final play = tester.getRect(playButton());
+      expect(play.top, greaterThan(cover.bottom));
+      expect(tester.getCenter(playButton()).dx, lessThan(720));
+      // Remaining time travels with the controls.
+      expect(tester.getRect(find.text('-3:20')).top, greaterThan(cover.bottom));
+      // Volume slider below the cover too.
+      for (final e in find.byType(Slider).evaluate()) {
+        expect(
+          tester.getRect(find.byWidget(e.widget)).top,
+          greaterThan(cover.bottom),
+        );
+      }
+    });
+
+    testWidgets('desktop: spotify heart under the cover, queue on the right', (
+      tester,
+    ) async {
+      setSurface(tester, 1440, 900);
+      final player = await playingPlayer();
+      addTearDown(player.dispose);
+      final settings = await settingsWith(MusicPlayerStyle.spotify);
+      await pumpPage(
+        tester,
+        player: player,
+        settings: settings,
+        musicRepo: _DesktopFakeMusicRepo(),
+      );
+
+      final cover = coverRect(tester, 340);
+      // Heart + Queue button stay with the controls under the cover.
+      final heart = tester.getRect(find.byIcon(Icons.favorite_border));
+      expect(heart.top, greaterThan(cover.bottom));
+      expect(
+        tester.getCenter(find.byIcon(Icons.favorite_border)).dx,
+        lessThan(720),
+      );
+      expect(tester.getCenter(find.text('播放队列')).dx, lessThan(720));
+      // Up next stays in the right column.
+      expect(tester.getCenter(find.text('接下来播放')).dx, greaterThan(720));
+    });
+
     testWidgets('phone: single column, no desktop volume slider', (
       tester,
     ) async {
@@ -192,6 +282,24 @@ void main() {
       // Seek slider only — the volume slider stays Apple Music only
       // on phones.
       expect(find.byType(Slider), findsOneWidget);
+    });
+
+    testWidgets('phone: controls still below the cover in one column', (
+      tester,
+    ) async {
+      setSurface(tester, 390, 844);
+      final player = await playingPlayer();
+      addTearDown(player.dispose);
+      final settings = await settingsWith(MusicPlayerStyle.standard);
+      await pumpPage(tester, player: player, settings: settings);
+
+      // The desktop move must not reorder the phone layout.
+      final cover = coverRect(tester, 280);
+      expect(
+        tester.getRect(find.byType(Slider)).top,
+        greaterThan(cover.bottom),
+      );
+      expect(tester.getRect(playButton()).top, greaterThan(cover.bottom));
     });
   });
 

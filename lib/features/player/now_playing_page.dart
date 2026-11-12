@@ -38,14 +38,14 @@ String _clock(Duration d) {
 /// repeat mode, and a button that does nothing is not acceptable.
 ///
 /// Desktop (width >= 1024): a two-column layout — left column large
-/// cover + title/artist, right column seek slider + play controls +
-/// volume + Up next queue — centred with a max width of 1000. The
-/// style variants keep working in both layouts; the desktop
-/// arrangement applies on top of whichever style is selected. The
-/// volume slider shows in the right column for every style on
-/// desktop (it is wired to the real player volume); on phones it
-/// stays Apple Music only, as before. Below 1024 the single-column
-/// layout is unchanged.
+/// cover + title/artist + seek slider + play controls + volume
+/// (the controls sit directly under the cover), right column Up next
+/// queue only — centred with a max width of 1000. The style
+/// variants keep working in both layouts; the desktop arrangement
+/// applies on top of whichever style is selected. The volume slider
+/// shows under the cover for every style on desktop (it is wired to
+/// the real player volume); on phones it stays Apple Music only, as
+/// before. Below 1024 the single-column layout is unchanged.
 class NowPlayingPage extends StatefulWidget {
   const NowPlayingPage({
     super.key,
@@ -435,11 +435,13 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   /// Desktop layout (width >= 1024): two columns inside the shared
-  /// 1000px centred content — large cover + title/artist on the
-  /// left, seek + controls + volume + Up next on the right. The
-  /// extra skip-to-start/end buttons in the mockup are ignored:
-  /// there is no such function. The style variants apply on top of
-  /// this arrangement, exactly as on phones.
+  /// 1000px centred content — left column large cover + title/artist
+  /// + seek slider + play controls + volume, right column Up next
+  /// queue only. The controls moved under the cover (they used to
+  /// sit in the right column above the queue); the extra
+  /// skip-to-start/end buttons in the mockup are ignored: there is
+  /// no such function. The style variants apply on top of this
+  /// arrangement, exactly as on phones.
   Widget _desktopBody(Track track) {
     final style = _style;
     return CenteredContent(
@@ -451,24 +453,27 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             flex: 5,
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Center(child: _coverHeader(track, coverSize: 340)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _coverHeader(track, coverSize: 340),
+                  const SizedBox(height: 24),
+                  _seekAndControls(track),
+                  const SizedBox(height: 16),
+                  _volumeRow(showPercent: true),
+                  if (style == MusicPlayerStyle.spotify) ...[
+                    const SizedBox(height: 8),
+                    _spotifyRow(track),
+                  ],
+                ],
+              ),
             ),
           ),
           Expanded(
             flex: 6,
             child: ListView(
               padding: const EdgeInsets.all(24),
-              children: [
-                _seekAndControls(track),
-                const SizedBox(height: 16),
-                _volumeRow(showPercent: true),
-                if (style == MusicPlayerStyle.spotify) ...[
-                  const SizedBox(height: 8),
-                  _spotifyRow(track),
-                ],
-                const SizedBox(height: 24),
-                _queueSection(),
-              ],
+              children: [_queueSection()],
             ),
           ),
         ],
