@@ -80,6 +80,28 @@ class $ServersTable extends Servers with TableInfo<$ServersTable, ServerRow> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _serverVersionMeta = const VerificationMeta(
+    'serverVersion',
+  );
+  @override
+  late final GeneratedColumn<String> serverVersion = GeneratedColumn<String>(
+    'server_version',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _serverNameMeta = const VerificationMeta(
+    'serverName',
+  );
+  @override
+  late final GeneratedColumn<String> serverName = GeneratedColumn<String>(
+    'server_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -89,6 +111,8 @@ class $ServersTable extends Servers with TableInfo<$ServersTable, ServerRow> {
     port,
     username,
     isDefault,
+    serverVersion,
+    serverName,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -151,6 +175,21 @@ class $ServersTable extends Servers with TableInfo<$ServersTable, ServerRow> {
         isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
       );
     }
+    if (data.containsKey('server_version')) {
+      context.handle(
+        _serverVersionMeta,
+        serverVersion.isAcceptableOrUnknown(
+          data['server_version']!,
+          _serverVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('server_name')) {
+      context.handle(
+        _serverNameMeta,
+        serverName.isAcceptableOrUnknown(data['server_name']!, _serverNameMeta),
+      );
+    }
     return context;
   }
 
@@ -188,6 +227,14 @@ class $ServersTable extends Servers with TableInfo<$ServersTable, ServerRow> {
         DriftSqlType.bool,
         data['${effectivePrefix}is_default'],
       )!,
+      serverVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}server_version'],
+      ),
+      serverName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}server_name'],
+      ),
     );
   }
 
@@ -205,6 +252,12 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
   final int port;
   final String username;
   final bool isDefault;
+
+  /// Last-known server version/name from a connection probe (schema v3).
+  /// Display-only facts, not secrets. Null until the server has been
+  /// tested at least once; a failed test never blanks them.
+  final String? serverVersion;
+  final String? serverName;
   const ServerRow({
     required this.id,
     required this.type,
@@ -213,6 +266,8 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
     required this.port,
     required this.username,
     required this.isDefault,
+    this.serverVersion,
+    this.serverName,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -224,6 +279,12 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
     map['port'] = Variable<int>(port);
     map['username'] = Variable<String>(username);
     map['is_default'] = Variable<bool>(isDefault);
+    if (!nullToAbsent || serverVersion != null) {
+      map['server_version'] = Variable<String>(serverVersion);
+    }
+    if (!nullToAbsent || serverName != null) {
+      map['server_name'] = Variable<String>(serverName);
+    }
     return map;
   }
 
@@ -236,6 +297,12 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
       port: Value(port),
       username: Value(username),
       isDefault: Value(isDefault),
+      serverVersion: serverVersion == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverVersion),
+      serverName: serverName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverName),
     );
   }
 
@@ -252,6 +319,8 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
       port: serializer.fromJson<int>(json['port']),
       username: serializer.fromJson<String>(json['username']),
       isDefault: serializer.fromJson<bool>(json['isDefault']),
+      serverVersion: serializer.fromJson<String?>(json['serverVersion']),
+      serverName: serializer.fromJson<String?>(json['serverName']),
     );
   }
   @override
@@ -265,6 +334,8 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
       'port': serializer.toJson<int>(port),
       'username': serializer.toJson<String>(username),
       'isDefault': serializer.toJson<bool>(isDefault),
+      'serverVersion': serializer.toJson<String?>(serverVersion),
+      'serverName': serializer.toJson<String?>(serverName),
     };
   }
 
@@ -276,6 +347,8 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
     int? port,
     String? username,
     bool? isDefault,
+    Value<String?> serverVersion = const Value.absent(),
+    Value<String?> serverName = const Value.absent(),
   }) => ServerRow(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -284,6 +357,10 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
     port: port ?? this.port,
     username: username ?? this.username,
     isDefault: isDefault ?? this.isDefault,
+    serverVersion: serverVersion.present
+        ? serverVersion.value
+        : this.serverVersion,
+    serverName: serverName.present ? serverName.value : this.serverName,
   );
   ServerRow copyWithCompanion(ServersCompanion data) {
     return ServerRow(
@@ -294,6 +371,12 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
       port: data.port.present ? data.port.value : this.port,
       username: data.username.present ? data.username.value : this.username,
       isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      serverVersion: data.serverVersion.present
+          ? data.serverVersion.value
+          : this.serverVersion,
+      serverName: data.serverName.present
+          ? data.serverName.value
+          : this.serverName,
     );
   }
 
@@ -306,14 +389,25 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
           ..write('host: $host, ')
           ..write('port: $port, ')
           ..write('username: $username, ')
-          ..write('isDefault: $isDefault')
+          ..write('isDefault: $isDefault, ')
+          ..write('serverVersion: $serverVersion, ')
+          ..write('serverName: $serverName')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, type, name, host, port, username, isDefault);
+  int get hashCode => Object.hash(
+    id,
+    type,
+    name,
+    host,
+    port,
+    username,
+    isDefault,
+    serverVersion,
+    serverName,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -324,7 +418,9 @@ class ServerRow extends DataClass implements Insertable<ServerRow> {
           other.host == this.host &&
           other.port == this.port &&
           other.username == this.username &&
-          other.isDefault == this.isDefault);
+          other.isDefault == this.isDefault &&
+          other.serverVersion == this.serverVersion &&
+          other.serverName == this.serverName);
 }
 
 class ServersCompanion extends UpdateCompanion<ServerRow> {
@@ -335,6 +431,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
   final Value<int> port;
   final Value<String> username;
   final Value<bool> isDefault;
+  final Value<String?> serverVersion;
+  final Value<String?> serverName;
   final Value<int> rowid;
   const ServersCompanion({
     this.id = const Value.absent(),
@@ -344,6 +442,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
     this.port = const Value.absent(),
     this.username = const Value.absent(),
     this.isDefault = const Value.absent(),
+    this.serverVersion = const Value.absent(),
+    this.serverName = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ServersCompanion.insert({
@@ -354,6 +454,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
     required int port,
     this.username = const Value.absent(),
     this.isDefault = const Value.absent(),
+    this.serverVersion = const Value.absent(),
+    this.serverName = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        type = Value(type),
@@ -368,6 +470,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
     Expression<int>? port,
     Expression<String>? username,
     Expression<bool>? isDefault,
+    Expression<String>? serverVersion,
+    Expression<String>? serverName,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -378,6 +482,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
       if (port != null) 'port': port,
       if (username != null) 'username': username,
       if (isDefault != null) 'is_default': isDefault,
+      if (serverVersion != null) 'server_version': serverVersion,
+      if (serverName != null) 'server_name': serverName,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -390,6 +496,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
     Value<int>? port,
     Value<String>? username,
     Value<bool>? isDefault,
+    Value<String?>? serverVersion,
+    Value<String?>? serverName,
     Value<int>? rowid,
   }) {
     return ServersCompanion(
@@ -400,6 +508,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
       port: port ?? this.port,
       username: username ?? this.username,
       isDefault: isDefault ?? this.isDefault,
+      serverVersion: serverVersion ?? this.serverVersion,
+      serverName: serverName ?? this.serverName,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -428,6 +538,12 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
     if (isDefault.present) {
       map['is_default'] = Variable<bool>(isDefault.value);
     }
+    if (serverVersion.present) {
+      map['server_version'] = Variable<String>(serverVersion.value);
+    }
+    if (serverName.present) {
+      map['server_name'] = Variable<String>(serverName.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -444,6 +560,8 @@ class ServersCompanion extends UpdateCompanion<ServerRow> {
           ..write('port: $port, ')
           ..write('username: $username, ')
           ..write('isDefault: $isDefault, ')
+          ..write('serverVersion: $serverVersion, ')
+          ..write('serverName: $serverName, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1677,6 +1795,8 @@ typedef $$ServersTableCreateCompanionBuilder = ServersCompanion Function({
   required int port,
   Value<String> username,
   Value<bool> isDefault,
+  Value<String?> serverVersion,
+  Value<String?> serverName,
   Value<int> rowid,
 });
 typedef $$ServersTableUpdateCompanionBuilder = ServersCompanion Function({
@@ -1687,6 +1807,8 @@ typedef $$ServersTableUpdateCompanionBuilder = ServersCompanion Function({
   Value<int> port,
   Value<String> username,
   Value<bool> isDefault,
+  Value<String?> serverVersion,
+  Value<String?> serverName,
   Value<int> rowid,
 });
 
@@ -1731,6 +1853,16 @@ class $$ServersTableFilterComposer
 
   ColumnFilters<bool> get isDefault => $composableBuilder(
     column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get serverVersion => $composableBuilder(
+    column: $table.serverVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get serverName => $composableBuilder(
+    column: $table.serverName,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -1778,6 +1910,16 @@ class $$ServersTableOrderingComposer
     column: $table.isDefault,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get serverVersion => $composableBuilder(
+    column: $table.serverVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get serverName => $composableBuilder(
+    column: $table.serverName,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ServersTableAnnotationComposer
@@ -1809,6 +1951,16 @@ class $$ServersTableAnnotationComposer
 
   GeneratedColumn<bool> get isDefault =>
       $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<String> get serverVersion => $composableBuilder(
+    column: $table.serverVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get serverName => $composableBuilder(
+    column: $table.serverName,
+    builder: (column) => column,
+  );
 }
 
 class $$ServersTableTableManager
@@ -1846,6 +1998,8 @@ class $$ServersTableTableManager
                 Value<int> port = const Value.absent(),
                 Value<String> username = const Value.absent(),
                 Value<bool> isDefault = const Value.absent(),
+                Value<String?> serverVersion = const Value.absent(),
+                Value<String?> serverName = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ServersCompanion(
                 id: id,
@@ -1855,6 +2009,8 @@ class $$ServersTableTableManager
                 port: port,
                 username: username,
                 isDefault: isDefault,
+                serverVersion: serverVersion,
+                serverName: serverName,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -1866,6 +2022,8 @@ class $$ServersTableTableManager
                 required int port,
                 Value<String> username = const Value.absent(),
                 Value<bool> isDefault = const Value.absent(),
+                Value<String?> serverVersion = const Value.absent(),
+                Value<String?> serverName = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ServersCompanion.insert(
                 id: id,
@@ -1875,6 +2033,8 @@ class $$ServersTableTableManager
                 port: port,
                 username: username,
                 isDefault: isDefault,
+                serverVersion: serverVersion,
+                serverName: serverName,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

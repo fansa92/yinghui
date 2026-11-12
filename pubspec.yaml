@@ -33,6 +33,8 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.35.3
   build_runner: ^2.17.1
+  # Migration test builds a raw v2 database file with the sqlite3 binding.
+  sqlite3: ^3.5.2
   # P5: launcher icons from assets/logo.png (see flutter_launcher_icons.yaml).
   flutter_launcher_icons: ^0.14.3
 

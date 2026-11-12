@@ -36,6 +36,8 @@ class Server {
     this.username = '',
     this.token = '',
     this.isDefault = false,
+    this.serverVersion,
+    this.serverName,
   });
 
   final String id;
@@ -51,6 +53,12 @@ class Server {
   /// Secret (see class doc). Never log this.
   final String token;
   final bool isDefault;
+
+  /// Last-known server version / server name from a connection probe
+  /// (schema v3). Display-only facts, not secrets; null until the
+  /// server has been tested at least once.
+  final String? serverVersion;
+  final String? serverName;
 
   /// Base URL for Dio. A bare host gets `http://` + port; a full URL is
   /// used as-is (its port, if any, wins over [port]).
@@ -69,6 +77,8 @@ class Server {
     String? username,
     String? token,
     bool? isDefault,
+    String? serverVersion,
+    String? serverName,
   }) => Server(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -78,6 +88,8 @@ class Server {
     username: username ?? this.username,
     token: token ?? this.token,
     isDefault: isDefault ?? this.isDefault,
+    serverVersion: serverVersion ?? this.serverVersion,
+    serverName: serverName ?? this.serverName,
   );
 
   /// Non-secret fields only. [token] is deliberately excluded — it is
@@ -90,6 +102,8 @@ class Server {
     'port': port,
     'username': username,
     'isDefault': isDefault,
+    'serverVersion': serverVersion,
+    'serverName': serverName,
   };
 
   factory Server.fromJson(Map<String, dynamic> json) => Server(
@@ -100,5 +114,7 @@ class Server {
     port: (json['port'] as num).toInt(),
     username: (json['username'] as String?) ?? '',
     isDefault: (json['isDefault'] as bool?) ?? false,
+    serverVersion: json['serverVersion'] as String?,
+    serverName: json['serverName'] as String?,
   );
 }

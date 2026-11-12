@@ -12,7 +12,8 @@ import '../db/app_database.dart';
 
 /// Holds the server list in memory and persists it in two tiers:
 ///
-/// * non-secret fields (id, type, name, host, port, username, isDefault)
+/// * non-secret fields (id, type, name, host, port, username, isDefault,
+///   plus the last-known probe facts `serverVersion` / `serverName`)
 ///   -> Drift (SQLite) `servers` table;
 /// * the secret per server ([Server.token]) -> flutter_secure_storage,
 ///   key `yinghui_token_<server id>`.
@@ -27,15 +28,24 @@ import '../db/app_database.dart';
 /// by shared_preferences `yinghui_seeded_v1`, so a user-deleted server
 /// is never re-seeded.
 class ServerStore extends ChangeNotifier {
-  ServerStore({FlutterSecureStorage? secureStorage, AppDatabase? database})
-    : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
-      _db = database ?? AppDatabase();
+  ServerStore({
+    FlutterSecureStorage? secureStorage,
+    AppDatabase? database,
+    Future<ConnectionResult> Function(Server)? connectionTester,
+  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _db = database ?? AppDatabase(),
+       _connectionTester = connectionTester ?? ApiClientFactory.testConnection;
 
   static const String _legacyPrefsKey = 'yinghui_servers';
   static const String _seededPrefsKey = 'yinghui_seeded_v1';
 
   final FlutterSecureStorage _secureStorage;
   final AppDatabase _db;
+
+  /// Runs the native client's structured connectivity check. Injected
+  /// for tests (a fake can return canned results without a network);
+  /// production uses [ApiClientFactory.testConnection].
+  final Future<ConnectionResult> Function(Server) _connectionTester;
   final List<Server> _servers = [];
 
   /// The Drift database, shared with PlaybackStore (P2) so servers,
@@ -81,8 +91,17 @@ class ServerStore extends ChangeNotifier {
       final rows = await _db.select(_db.servers).get();
       _servers.clear();
       for (final row in rows) {
-        final token = await _secureStorage.read(key: 'yinghui_token_${row.id}');
-        _servers.add(_serverFromRow(row, token ?? ''));
+        // A token read must never drop the whole list: if secure
+        // storage fails for one server, that server loads with an
+        // empty token (the user re-enters it) and the rest still load.
+        String token = '';
+        try {
+          token =
+              await _secureStorage.read(key: 'yinghui_token_${row.id}') ?? '';
+        } catch (e) {
+          debugPrint('ServerStore token read failed for ${row.id}: $e');
+        }
+        _servers.add(_serverFromRow(row, token));
       }
       if (_servers.isEmpty) {
         await _migrateLegacyOrSeed();
@@ -132,6 +151,8 @@ class ServerStore extends ChangeNotifier {
     username: row.username,
     token: token,
     isDefault: row.isDefault,
+    serverVersion: row.serverVersion,
+    serverName: row.serverName,
   );
 
   Future<void> _save() async {
@@ -149,6 +170,8 @@ class ServerStore extends ChangeNotifier {
                 port: s.port,
                 username: Value(s.username),
                 isDefault: Value(s.isDefault),
+                serverVersion: Value(s.serverVersion),
+                serverName: Value(s.serverName),
               ),
             );
       }
@@ -177,7 +200,14 @@ class ServerStore extends ChangeNotifier {
   Future<void> update(Server server) async {
     final index = _servers.indexWhere((s) => s.id == server.id);
     if (index < 0) return;
-    _servers[index] = server;
+    // The edit form does not carry probe data, so a save must not wipe
+    // the last-known version/name — keep the stored values unless the
+    // caller explicitly provides new ones.
+    final existing = _servers[index];
+    _servers[index] = server.copyWith(
+      serverVersion: server.serverVersion ?? existing.serverVersion,
+      serverName: server.serverName ?? existing.serverName,
+    );
     await _save();
     notifyListeners();
   }
@@ -204,9 +234,42 @@ class ServerStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Runs the native client's structured connectivity check.
-  Future<ConnectionResult> testConnection(Server server) =>
-      ApiClientFactory.testConnection(server);
+  /// Runs the native client's structured connectivity check, then
+  /// records any version/name the probe returned onto the server's
+  /// row (see [_recordProbeResult]). The form's Test Connection button
+  /// goes through here too, so a successful probe there persists as
+  /// well — even if the dialog is then cancelled.
+  Future<ConnectionResult> testConnection(Server server) async {
+    final result = await _connectionTester(server);
+    await _recordProbeResult(server.id, result);
+    return result;
+  }
+
+  /// Persists a probe's version/name onto the stored server. Only a
+  /// field the result actually carries is overwritten — a failed or
+  /// version-less test never blanks a previously known version.
+  /// Unknown server ids (e.g. a not-yet-saved form candidate) are
+  /// ignored.
+  Future<void> _recordProbeResult(
+    String serverId,
+    ConnectionResult result,
+  ) async {
+    if (result.serverVersion == null && result.serverName == null) return;
+    final index = _servers.indexWhere((s) => s.id == serverId);
+    if (index < 0) return;
+    final current = _servers[index];
+    final updated = current.copyWith(
+      serverVersion: result.serverVersion ?? current.serverVersion,
+      serverName: result.serverName ?? current.serverName,
+    );
+    if (updated.serverVersion == current.serverVersion &&
+        updated.serverName == current.serverName) {
+      return;
+    }
+    _servers[index] = updated;
+    await _save();
+    notifyListeners();
+  }
 
   /// Bool helper: true only when the check is `ok`.
   Future<bool> testConnectionBool(Server server) =>

@@ -14,6 +14,12 @@ import '../../data/repositories/server_store.dart';
 /// tested (grey). The Test button runs the structured probe
 /// ([ConnectionResult]) — e.g. a Subsonic code-10 or qBittorrent 403
 /// shows as "needs login", not as unreachable.
+///
+/// Each row also shows the last-known server version/name (schema v3),
+/// persisted when a probe returns them and surviving restarts — a
+/// server never tested shows no version at all. A fresh probe result
+/// in this session takes precedence over the stored values and updates
+/// them immediately.
 class ServersPage extends StatefulWidget {
   const ServersPage({super.key, required this.store});
 
@@ -101,8 +107,17 @@ class _ServersPageState extends State<ServersPage> {
               final server = store.servers[i];
               final result = _results[server.id];
               final testing = _testing.contains(server.id);
+              // Last-known version/name from a previous probe, shown
+              // until a fresh test in this session replaces it.
+              final storedDetail = [
+                if (server.serverVersion != null &&
+                    server.serverVersion!.isNotEmpty)
+                  'v${server.serverVersion}',
+                if (server.serverName != null && server.serverName!.isNotEmpty)
+                  server.serverName!,
+              ].join(' · ');
               final detail = result == null
-                  ? ''
+                  ? (storedDetail.isEmpty ? '' : '\n$storedDetail')
                   : '\n${_statusLabel(result)}: ${result.message}'
                         '${result.serverVersion?.isNotEmpty == true ? ' · v${result.serverVersion}' : ''}'
                         '${result.serverName?.isNotEmpty == true ? ' · ${result.serverName}' : ''}';

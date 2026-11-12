@@ -17,6 +17,12 @@ class Servers extends Table {
   TextColumn get username => text().withDefault(const Constant(''))();
   BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
 
+  /// Last-known server version/name from a connection probe (schema v3).
+  /// Display-only facts, not secrets. Null until the server has been
+  /// tested at least once; a failed test never blanks them.
+  TextColumn get serverVersion => text().nullable()();
+  TextColumn get serverName => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -76,13 +82,17 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.e);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.addColumn(downloadTasks, downloadTasks.sourceInput);
+      }
+      if (from < 3) {
+        await m.addColumn(servers, servers.serverVersion);
+        await m.addColumn(servers, servers.serverName);
       }
     },
   );

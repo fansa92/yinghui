@@ -113,11 +113,17 @@ class TransmissionClient {
 
   /// Structured connectivity check: session-get ok, otherwise
   /// unreachable (auth failures surface as unreachable here — a
-  /// Transmission server does not expose a public probe).
+  /// Transmission server does not expose a public probe). The
+  /// `session-get` arguments carry the daemon `version`, which is
+  /// returned when present; a missing or non-string version is not a
+  /// failure — the check is still ok, just without a version.
   Future<ConnectionResult> testConnectionResult() async {
     try {
-      await rpc('session-get');
-      return ConnectionResult.ok();
+      final args = await rpc('session-get');
+      final version = args['version'];
+      return ConnectionResult.ok(
+        serverVersion: version is String && version.isNotEmpty ? version : null,
+      );
     } on ApiException catch (e) {
       return ConnectionResult.unreachable(message: e.message);
     }
