@@ -353,6 +353,24 @@ class RealDownloadRepository extends ChangeNotifier
   bool _refreshing = false;
   bool _refreshPending = false;
 
+  /// Short, user-facing text for a failed per-server call. Never
+  /// surfaces the raw Dio/ApiException message: the clients' `_guard`
+  /// embeds Dio's own message, which for an HTTP error is a full dump
+  /// ("This exception was thrown because the response has a status
+  /// code of 403 and RequestOptions.validateStatus was configured
+  /// to throw…") that must never reach the user. Only the status
+  /// code is used, so nothing from the raw error leaks through.
+  static String friendlyError(Server server, ApiException e) {
+    final status = e.statusCode;
+    if (status == 401 || status == 403) {
+      return '${server.name}：登录已过期或账号不对，请在服务器页重新测试连接';
+    }
+    if (status != null) {
+      return '${server.name}：服务器返回 HTTP $status';
+    }
+    return '${server.name}：无法连接，请检查网络和服务器地址';
+  }
+
   Future<void> _refreshOnce() async {
     if (!hasCredentials) {
       _tasks
@@ -377,7 +395,7 @@ class RealDownloadRepository extends ChangeNotifier
       try {
         live.addAll(await _fetchFor(server));
       } on ApiException catch (e) {
-        _errors[server.id] = '${server.name}: ${e.message}';
+        _errors[server.id] = friendlyError(server, e);
       }
     }
     try {
@@ -493,7 +511,7 @@ class RealDownloadRepository extends ChangeNotifier
       }
       return ok;
     } on ApiException catch (e) {
-      _errors[server.id] = '${server.name}: ${e.message}';
+      _errors[server.id] = friendlyError(server, e);
       notifyListeners();
       return false;
     }
@@ -563,7 +581,7 @@ class RealDownloadRepository extends ChangeNotifier
       if (ok) await refresh();
       return ok;
     } on ApiException catch (e) {
-      _errors[server.id] = '${server.name}: ${e.message}';
+      _errors[server.id] = friendlyError(server, e);
       notifyListeners();
       return false;
     }
@@ -614,7 +632,7 @@ class RealDownloadRepository extends ChangeNotifier
       await refresh();
       return true;
     } on ApiException catch (e) {
-      _errors[server.id] = '${server.name}: ${e.message}';
+      _errors[server.id] = friendlyError(server, e);
       notifyListeners();
       return false;
     }

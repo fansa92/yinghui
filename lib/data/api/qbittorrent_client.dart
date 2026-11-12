@@ -85,6 +85,17 @@ class QbittorrentClient {
       return body.isEmpty || body == 'Ok.' || body == 'Ok';
     }, 'login');
     if (!ok) throw ApiException('qBittorrent login failed: bad credentials');
+    // A login that answers "Ok." but sets no SID cookie leaves the
+    // client with no session: every later call goes out without a
+    // cookie and comes back 403. Fail here, as an auth failure, with
+    // a clear message — instead of surfacing that confusing 403
+    // downstream in the Downloads page.
+    if (_sid == null) {
+      throw ApiException(
+        'qBittorrent login failed: server did not return a session (SID)',
+        statusCode: 401,
+      );
+    }
     return true;
   }
 
@@ -160,7 +171,13 @@ class QbittorrentClient {
     try {
       return await run();
     } on ApiException catch (e) {
-      if (e.statusCode == 403 && _sid != null) {
+      if (e.statusCode == 403) {
+        // The SID expired (or was never captured): log in once more
+        // and retry a single time. The retry is not wrapped, so its
+        // failure propagates — no loop. The old code also required
+        // _sid != null here, which meant a login that succeeded
+        // without capturing a SID could never recover from the 403
+        // that followed.
         _sid = null;
         await login();
         return run();
