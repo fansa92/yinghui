@@ -10,6 +10,15 @@ import 'playback_decision.dart';
 import 'playback_store.dart';
 import 'server_store.dart';
 
+/// One library's recently added items, shown under the library's
+/// name (e.g. "电影" / "电视剧").
+class RecentCategory {
+  const RecentCategory({required this.name, required this.items});
+
+  final String name;
+  final List<VideoItem> items;
+}
+
 /// What the Video tab needs, regardless of where the data comes from.
 abstract class VideoRepository {
   /// True when at least one Emby server has a username + token.
@@ -21,7 +30,24 @@ abstract class VideoRepository {
   /// default) merges across all credentialed Emby servers. The Home
   /// page never passes it, so Home always stays merged.
   Future<List<VideoItem>> continueWatching({String? serverId});
+
+  /// The generic recently-added list, flattened across categories.
+  /// Prefer [recentlyAddedByCategory] for display: it groups by
+  /// library, which is how Emby actually serves latest items.
   Future<List<VideoItem>> recentlyAdded({String? serverId});
+
+  /// Recently added items grouped by library ("最近添加" per
+  /// category). The default implementation flattens [recentlyAdded]
+  /// into a single "最近添加" category, so repos that do not serve
+  /// per-library latest items keep working.
+  Future<List<RecentCategory>> recentlyAddedByCategory({
+    String? serverId,
+  }) async {
+    final items = await recentlyAdded(serverId: serverId);
+    if (items.isEmpty) return [];
+    return [RecentCategory(name: '最近添加', items: items)];
+  }
+
   Future<List<VideoItem>> movies({
     int limit = 20,
     int offset = 0,
@@ -198,21 +224,73 @@ class RealVideoRepository implements VideoRepository {
   }
 
   @override
+  Future<List<RecentCategory>> recentlyAddedByCategory({
+    String? serverId,
+  }) async {
+    // No credentials: the demo data has no library to traverse, so
+    // it stays one "最近添加" category (the old fake list).
+    if (!hasCredentials) {
+      return [RecentCategory(name: '最近添加', items: FakeVideoRepo.recentlyAdded)];
+    }
+    final out = <RecentCategory>[];
+    for (final (server, client) in _clients) {
+      if (serverId != null && server.id != serverId) continue;
+      late final List<LibraryView> views;
+      try {
+        views = await client.getUserViews();
+      } on ApiException {
+        continue;
+      }
+      for (final view in views) {
+        // Only media libraries have latest items; a music library
+        // or a plain folder returns nothing useful from Latest.
+        if (view.collectionType != 'movies' &&
+            view.collectionType != 'tvshows') {
+          continue;
+        }
+        late final List<VideoItem> items;
+        try {
+          items = await client.getLatestItems(parentId: view.id);
+        } on ApiException {
+          continue;
+        }
+        if (items.isEmpty) continue;
+        // Same title + year twice in one library (e.g. a movie and
+        // its extras) shows once.
+        final seen = <String>{};
+        final deduped = items.where((v) => seen.add(_videoKey(v))).toList();
+        // Two servers with a same-named library merge into one
+        // section instead of showing "电影" twice.
+        final existing = out.where((c) => c.name == view.name).firstOrNull;
+        if (existing == null) {
+          out.add(RecentCategory(name: view.name, items: deduped));
+        } else {
+          final existingKeys = existing.items.map(_videoKey).toSet();
+          final merged = [
+            ...existing.items,
+            ...deduped.where((v) => existingKeys.add(_videoKey(v))),
+          ];
+          out[out.indexOf(existing)] = RecentCategory(
+            name: existing.name,
+            items: merged,
+          );
+        }
+      }
+    }
+    return out;
+  }
+
+  @override
   Future<List<VideoItem>> recentlyAdded({String? serverId}) async {
+    // Kept as a flattened view of the per-category traversal: the
+    // old single getItems(DateCreated) query is gone.
     if (!hasCredentials) return FakeVideoRepo.recentlyAdded;
-    return _merged<VideoItem>(
-      (c) async {
-        final uid = await c.userId();
-        return c.getItems(
-          includeItemTypes: 'Movie,Series',
-          userId: uid,
-          sortBy: 'DateCreated',
-          sortOrder: 'Descending',
-        );
-      },
-      _videoKey,
-      serverId: serverId,
-    );
+    final categories = await recentlyAddedByCategory(serverId: serverId);
+    final seen = <String>{};
+    return categories
+        .expand((c) => c.items)
+        .where((v) => seen.add(_videoKey(v)))
+        .toList();
   }
 
   @override

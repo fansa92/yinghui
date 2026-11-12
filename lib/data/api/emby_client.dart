@@ -200,6 +200,45 @@ class EmbyClient {
     }
   }
 
+  /// GET /Users/{userId}/Items/Latest — the canonical "latest added"
+  /// call (Emby developer docs, "Latest Items"). Unlike the generic
+  /// GET /Items with SortBy=DateCreated, which returns nothing on
+  /// some servers when it is not scoped to a library, Latest is
+  /// scoped to one library via [parentId] and returns that library's
+  /// newest items. [groupItems] groups new episodes into their Series.
+  Future<List<VideoItem>> getLatestItems({
+    required String parentId,
+    int limit = 12,
+    String includeItemTypes = 'Movie,Series',
+    bool groupItems = true,
+  }) async {
+    try {
+      final uid = await userId();
+      final response = await dio.get<Map<String, dynamic>>(
+        'Users/$uid/Items/Latest',
+        queryParameters: {
+          'ParentId': parentId,
+          'IncludeItemTypes': includeItemTypes,
+          'Limit': limit,
+          'GroupItems': groupItems.toString(),
+          'Fields': 'Overview,PrimaryImageAspectRatio',
+        },
+        options: Options(headers: {..._authHeader, ..._tokenHeader}),
+      );
+      final items = (response.data?['Items'] as List?) ?? [];
+      return items
+          .whereType<Map<String, dynamic>>()
+          .map(_videoFromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw ApiException(
+        'Emby latest items failed: ${e.message ?? e.type.name}',
+        statusCode: e.response?.statusCode,
+        cause: e,
+      );
+    }
+  }
+
   /// GET /Items?IncludeItemTypes=Audio — audio tracks as unified [Track]s.
   Future<List<Track>> getAudioItems({int limit = 20}) async {
     try {

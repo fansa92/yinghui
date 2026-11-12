@@ -412,6 +412,16 @@ class _RecordingVideoRepo implements VideoRepository {
   }
 
   @override
+  Future<List<RecentCategory>> recentlyAddedByCategory({
+    String? serverId,
+  }) async {
+    recentCalls.add(serverId);
+    return [
+      RecentCategory(name: '最近添加', items: [_video(serverId)]),
+    ];
+  }
+
+  @override
   Future<List<VideoItem>> movies({
     int limit = 20,
     int offset = 0,

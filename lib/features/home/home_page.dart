@@ -55,7 +55,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   List<VideoItem> _continueWatching = [];
   List<Album> _recentAlbums = [];
-  List<VideoItem> _recentVideos = [];
+  List<RecentCategory> _recentVideoCategories = [];
   List<PlaybackHistoryData> _recentHistory = [];
   bool _hadCredentials = false;
 
@@ -93,7 +93,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _load() async {
     List<VideoItem> watching = [];
-    List<VideoItem> recentVideos = [];
+    List<RecentCategory> recentVideoCategories = [];
     List<Album> albums = [];
     List<PlaybackHistoryData> history = [];
     String? videoError;
@@ -101,7 +101,8 @@ class _HomePageState extends State<HomePage> {
     try {
       if (widget.videoRepo.hasCredentials) {
         watching = await widget.videoRepo.continueWatching();
-        recentVideos = await widget.videoRepo.recentlyAdded();
+        recentVideoCategories = await widget.videoRepo
+            .recentlyAddedByCategory();
       }
     } catch (e) {
       // The video section failed on every server: keep the error so
@@ -121,7 +122,7 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     setState(() {
       _continueWatching = watching;
-      _recentVideos = recentVideos;
+      _recentVideoCategories = recentVideoCategories;
       _recentAlbums = albums;
       _recentHistory = history;
       _videoError = videoError;
@@ -249,7 +250,7 @@ class _HomePageState extends State<HomePage> {
                   ],
                   if (_videoError != null &&
                       _continueWatching.isEmpty &&
-                      _recentVideos.isEmpty) ...[
+                      _recentVideoCategories.isEmpty) ...[
                     _sectionError('视频加载失败', _videoError!, _load),
                     const SizedBox(height: 16),
                   ],
@@ -309,24 +310,23 @@ class _HomePageState extends State<HomePage> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  if (_recentAlbums.isNotEmpty || _recentVideos.isNotEmpty) ...[
+                  if (_recentAlbums.isNotEmpty ||
+                      _recentVideoCategories.isNotEmpty) ...[
                     _sectionTitle('最近添加'),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: gridColumnsForWidth(
-                          MediaQuery.of(context).size.width,
+                    if (_recentAlbums.isNotEmpty)
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: gridColumnsForWidth(
+                            MediaQuery.of(context).size.width,
+                          ),
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.85,
                         ),
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.85,
-                      ),
-                      itemCount: _recentAlbums.isNotEmpty
-                          ? _recentAlbums.length
-                          : _recentVideos.length,
-                      itemBuilder: (context, i) {
-                        if (_recentAlbums.isNotEmpty) {
+                        itemCount: _recentAlbums.length,
+                        itemBuilder: (context, i) {
                           final a = _recentAlbums[i];
                           return _AlbumCard(
                             title: a.title,
@@ -342,15 +342,45 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                           );
-                        }
-                        final v = _recentVideos[i];
-                        return _AlbumCard(
-                          title: v.title,
-                          subtitle: '${v.year ?? ''} · ${v.typeLabel}'.trim(),
-                          onTap: () => _openVideo(v),
-                        );
-                      },
-                    ),
+                        },
+                      ),
+                    for (final category in _recentVideoCategories) ...[
+                      // A library name ("电影" / "电视剧") heads its own
+                      // row; the single fake category is just "最近添加".
+                      if (category.name != '最近添加') ...[
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            category.name,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                      SizedBox(
+                        height: 200,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: category.items.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 12),
+                          itemBuilder: (context, i) {
+                            final v = category.items[i];
+                            return SizedBox(
+                              width: 140,
+                              child: _AlbumCard(
+                                title: v.title,
+                                subtitle: '${v.year ?? ''} · ${v.typeLabel}'
+                                    .trim(),
+                                onTap: () => _openVideo(v),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),

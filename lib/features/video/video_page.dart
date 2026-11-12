@@ -56,7 +56,7 @@ class _VideoPageState extends State<VideoPage> {
   final _scrollController = ScrollController();
 
   List<VideoItem> _continueWatching = [];
-  List<VideoItem> _recentlyAdded = [];
+  List<RecentCategory> _recentCategories = [];
   List<VideoItem> _movies = [];
   List<VideoItem> _series = [];
   List<VideoItem>? _searchResult;
@@ -169,7 +169,7 @@ class _VideoPageState extends State<VideoPage> {
       final continuing = await widget.repo.continueWatching(
         serverId: _effectiveServerId,
       );
-      final recent = await widget.repo.recentlyAdded(
+      final recent = await widget.repo.recentlyAddedByCategory(
         serverId: _effectiveServerId,
       );
       final movies = await widget.repo.movies(
@@ -183,7 +183,7 @@ class _VideoPageState extends State<VideoPage> {
       if (!mounted) return;
       setState(() {
         _continueWatching = continuing;
-        _recentlyAdded = recent;
+        _recentCategories = recent;
         _movies = movies;
         _series = series;
         _hasMore = (_filter == '电影' ? movies : series).length >= _pageSize;
@@ -283,7 +283,10 @@ class _VideoPageState extends State<VideoPage> {
     }
     final hero = _continueWatching.isNotEmpty
         ? _continueWatching.first
-        : (_recentlyAdded.isNotEmpty ? _recentlyAdded.first : null);
+        : (_recentCategories.isNotEmpty &&
+                  _recentCategories.first.items.isNotEmpty
+              ? _recentCategories.first.items.first
+              : null);
     return CenteredContent(
       child: RefreshIndicator(
         onRefresh: _loadInitial,
@@ -408,31 +411,47 @@ class _VideoPageState extends State<VideoPage> {
                 ),
                 const SizedBox(height: 16),
               ],
-              const Text(
-                '最近添加',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              ..._recentlyAdded.map(
-                (v) => ListTile(
-                  leading: PosterImage(
-                    posterUrl: v.posterUrl,
-                    width: 48,
-                    height: 72,
-                    borderRadius: 8,
-                  ),
-                  title: Text(v.title),
-                  subtitle: Text(
-                    '${v.year ?? ''} · ${v.typeLabel} · ${v.durationText}',
-                  ),
-                  trailing: Text(
-                    v.sourceLabel,
-                    style: const TextStyle(color: YingHuiTheme.textMuted),
-                  ),
-                  onTap: () => _openDetail(v),
+              if (_recentCategories.isNotEmpty) ...[
+                const Text(
+                  '最近添加',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                for (final category in _recentCategories) ...[
+                  // A library name ("电影" / "电视剧") heads its own
+                  // group; the single fake category is just "最近添加".
+                  if (category.name != '最近添加') ...[
+                    Text(
+                      category.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  ...category.items.map(
+                    (v) => ListTile(
+                      leading: PosterImage(
+                        posterUrl: v.posterUrl,
+                        width: 48,
+                        height: 72,
+                        borderRadius: 8,
+                      ),
+                      title: Text(v.title),
+                      subtitle: Text(
+                        '${v.year ?? ''} · ${v.typeLabel} · ${v.durationText}',
+                      ),
+                      trailing: Text(
+                        v.sourceLabel,
+                        style: const TextStyle(color: YingHuiTheme.textMuted),
+                      ),
+                      onTap: () => _openDetail(v),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ],
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(

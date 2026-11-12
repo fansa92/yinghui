@@ -103,6 +103,18 @@ class _CountingVideoRepo implements VideoRepository {
     return [_video()];
   }
 
+  // The pages call this now (recentlyAdded is only the flattened
+  // view); count it as the "recent" load for the tab tests.
+  @override
+  Future<List<RecentCategory>> recentlyAddedByCategory({
+    String? serverId,
+  }) async {
+    recentCalls++;
+    return [
+      RecentCategory(name: '最近添加', items: [_video()]),
+    ];
+  }
+
   @override
   Future<List<VideoItem>> movies({
     int limit = 20,
