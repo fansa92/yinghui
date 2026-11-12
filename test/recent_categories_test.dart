@@ -274,10 +274,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('最近添加'), findsOneWidget);
-      // '电影' is both the category heading and the 电影/剧集 filter
-      // chip; '电视剧' only ever appears as a category heading.
-      expect(find.text('电影').evaluate().length, 2);
-      expect(find.text('电视剧'), findsOneWidget);
+      // '电影' is the category chip, the category heading, and the
+      // 电影/剧集 filter chip; '电视剧' is the category chip + heading.
+      expect(find.text('电影').evaluate().length, 3);
+      expect(find.text('电视剧').evaluate().length, 2);
       expect(find.text('The Last Horizon'), findsWidgets);
       expect(find.text('Night Shift'), findsWidgets);
     });

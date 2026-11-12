@@ -14,6 +14,7 @@ import '../../data/repositories/playback_store.dart';
 import '../../data/repositories/video_repository.dart';
 import '../../data/repositories/server_store.dart';
 import '../servers/servers_page.dart';
+import 'category_items_page.dart';
 import 'poster_image.dart';
 import 'video_detail_page.dart';
 
@@ -75,6 +76,19 @@ class _VideoPageState extends State<VideoPage> {
   /// Restored from [AppStateStore] in initState; [effectiveServerId]
   /// sanitises it against the live server list.
   String? _serverId;
+
+  /// Selected category in the 最近添加 section: a library name, or
+  /// null for "全部" (all categories stacked). Local UI state only —
+  /// it resets on reload, like the 电影/剧集 filter.
+  String? _selectedCategory;
+
+  /// The categories actually shown: all of them, or only the selected
+  /// one when a category chip is tapped.
+  List<RecentCategory> get _visibleCategories {
+    final selected = _selectedCategory;
+    if (selected == null) return _recentCategories;
+    return _recentCategories.where((c) => c.name == selected).toList();
+  }
 
   /// Emby server ids seen at the last store change, so a server added
   /// or removed while this page is open updates the selector.
@@ -272,6 +286,21 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
+  void _openCategory(RecentCategory category) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CategoryItemsPage(
+          title: category.name,
+          libraries: category.libraries,
+          repo: widget.repo,
+          history: widget.history,
+          settings: widget.settings,
+          appState: widget.appState,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.repo.hasCredentials) return _emptyState();
@@ -417,38 +446,27 @@ class _VideoPageState extends State<VideoPage> {
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                for (final category in _recentCategories) ...[
-                  // A library name ("电影" / "电视剧") heads its own
-                  // group; the single fake category is just "最近添加".
-                  if (category.name != '最近添加') ...[
-                    Text(
-                      category.name,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  ...category.items.map(
-                    (v) => ListTile(
-                      leading: PosterImage(
-                        posterUrl: v.posterUrl,
-                        width: 48,
-                        height: 72,
-                        borderRadius: 8,
-                      ),
-                      title: Text(v.title),
-                      subtitle: Text(
-                        '${v.year ?? ''} · ${v.typeLabel} · ${v.durationText}',
-                      ),
-                      trailing: Text(
-                        v.sourceLabel,
-                        style: const TextStyle(color: YingHuiTheme.textMuted),
-                      ),
-                      onTap: () => _openDetail(v),
+                // Category navigation: a horizontal chip row (全部 +
+                // one chip per library). Tapping a chip shows only
+                // that category's items; 全部 shows them all stacked.
+                // With a single category there is nothing to navigate.
+                if (_recentCategories.length > 1) ...[
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _categoryChip(null, '全部'),
+                        for (final category in _recentCategories)
+                          _categoryChip(category.name, category.name),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 8),
+                ],
+                for (final category in _visibleCategories) ...[
+                  _categoryHeader(category),
+                  const SizedBox(height: 8),
+                  _categoryRow(category),
                   const SizedBox(height: 16),
                 ],
               ],
@@ -482,6 +500,100 @@ class _VideoPageState extends State<VideoPage> {
                 ),
               const SizedBox(height: 16),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryChip(String? name, String label) {
+    final selected = _selectedCategory == name;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => setState(() => _selectedCategory = name),
+      ),
+    );
+  }
+
+  /// A category's header row: the library name on the left and a
+  /// "更多" button on the right (only when the category has a library
+  /// behind it — the fake "最近添加" category has none, so no button).
+  /// The fake category's name is also hidden: the section title above
+  /// already says 最近添加.
+  Widget _categoryHeader(RecentCategory category) {
+    final showName = category.name != '最近添加';
+    final showMore = category.libraries.isNotEmpty;
+    if (!showName && !showMore) return const SizedBox.shrink();
+    return Row(
+      children: [
+        if (showName)
+          Text(
+            category.name,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+          ),
+        const Spacer(),
+        if (showMore)
+          TextButton(
+            onPressed: () => _openCategory(category),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('更多 ›'),
+          ),
+      ],
+    );
+  }
+
+  /// One category's items as a horizontal poster row (same card shape
+  /// as 继续观看）, not a vertical list — the page reads as a media
+  /// browser, and the row scrolls without pushing the rest down.
+  Widget _categoryRow(RecentCategory category) {
+    return SizedBox(
+      height: 230,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: category.items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) => _categoryCard(category.items[i]),
+      ),
+    );
+  }
+
+  Widget _categoryCard(VideoItem v) {
+    final subtitle = [
+      if (v.year != null) '${v.year}',
+      v.typeLabel,
+      if (v.episodeCountText != null) v.episodeCountText!,
+    ].join(' · ');
+    return SizedBox(
+      width: 120,
+      child: InkWell(
+        onTap: () => _openDetail(v),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PosterImage(posterUrl: v.posterUrl),
+            const SizedBox(height: 4),
+            Text(
+              v.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13),
+            ),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                color: YingHuiTheme.textMuted,
+              ),
+            ),
           ],
         ),
       ),
@@ -565,6 +677,12 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   Widget _gridTile(VideoItem v) {
+    final subtitle = [
+      if (v.year != null) '${v.year}',
+      v.typeLabel,
+      v.durationText,
+      if (v.episodeCountText != null) v.episodeCountText!,
+    ].join(' · ');
     return ListTile(
       leading: PosterImage(
         posterUrl: v.posterUrl,
@@ -573,7 +691,7 @@ class _VideoPageState extends State<VideoPage> {
         borderRadius: 8,
       ),
       title: Text(v.title),
-      subtitle: Text('${v.year ?? ''} · ${v.typeLabel} · ${v.durationText}'),
+      subtitle: Text(subtitle),
       trailing: Text(
         v.sourceLabel,
         style: const TextStyle(color: YingHuiTheme.textMuted),

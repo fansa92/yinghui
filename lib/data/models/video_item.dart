@@ -10,7 +10,7 @@ class VideoItem {
     this.backdropUrl,
     this.type = 'Movie',
     this.durationSeconds = 0,
-    this.episodeCount = 0,
+    this.episodeCount,
 
     /// 0.0–1.0 resume position; 0 means not started.
     this.progress = 0,
@@ -41,7 +41,10 @@ class VideoItem {
   /// "Movie", "Series" or "Episode".
   final String type;
   final int durationSeconds;
-  final int episodeCount;
+
+  /// Episode count for a series (Emby ChildCount); null for movies
+  /// and episodes, and for a series that reports no ChildCount.
+  final int? episodeCount;
   final double progress;
   final int playbackPositionSeconds;
   final String serverId;
@@ -76,6 +79,15 @@ class VideoItem {
   };
 
   bool get isEpisode => type == 'Episode';
+
+  /// "更新至 X 集" for a series with a known episode count; null
+  /// otherwise. Only series carry a count — movies and episodes
+  /// never show one, and a series without ChildCount shows nothing
+  /// instead of an invented "更新至 0 集".
+  String? get episodeCountText =>
+      type == 'Series' && episodeCount != null && episodeCount! > 0
+      ? '更新至 $episodeCount 集'
+      : null;
 
   VideoItem copyWith({
     double? progress,

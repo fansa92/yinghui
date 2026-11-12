@@ -12,13 +12,39 @@ import 'playback_decision.dart';
 import 'playback_store.dart';
 import 'server_store.dart';
 
+/// One Emby library on one server, by id. A category's "更多" page
+/// queries exactly these libraries, so it stays scoped to the same
+/// server filter the category came from.
+class LibraryRef {
+  const LibraryRef({required this.serverId, required this.libraryId});
+
+  final String serverId;
+  final String libraryId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LibraryRef &&
+      other.serverId == serverId &&
+      other.libraryId == libraryId;
+
+  @override
+  int get hashCode => Object.hash(serverId, libraryId);
+}
+
 /// One library's recently added items, shown under the library's
-/// name (e.g. "电影" / "电视剧").
+/// name (e.g. "电影" / "电视剧"). [libraries] is empty for the fake
+/// "最近添加" category, which has no library behind it — such a
+/// category has no "更多" page.
 class RecentCategory {
-  const RecentCategory({required this.name, required this.items});
+  const RecentCategory({
+    required this.name,
+    required this.items,
+    this.libraries = const [],
+  });
 
   final String name;
   final List<VideoItem> items;
+  final List<LibraryRef> libraries;
 }
 
 /// What the Video tab needs, regardless of where the data comes from.
@@ -59,6 +85,18 @@ abstract class VideoRepository {
     int limit = 20,
     int offset = 0,
     String? serverId,
+  });
+
+  /// All items of the given libraries, paginated, merged and
+  /// title+year deduped — the backing query for a category's "更多"
+  /// page. Pagination is over the merged list: each library is
+  /// queried from the start with limit offset+limit (SortName order)
+  /// and the merged page is sliced out. A page can come back short
+  /// when two libraries share a title+year (the duplicate is dropped).
+  Future<List<VideoItem>> libraryItems({
+    required List<LibraryRef> libraries,
+    int limit = 20,
+    int offset = 0,
   });
   Future<List<VideoItem>> search(String query, {String? serverId});
   Future<SeriesDetail> seriesDetail(String seriesId, String serverId);
@@ -270,8 +308,11 @@ class RealVideoRepository implements VideoRepository {
         // Two servers with a same-named library merge into one
         // section instead of showing "电影" twice.
         final existing = out.where((c) => c.name == view.name).firstOrNull;
+        final ref = LibraryRef(serverId: server.id, libraryId: view.id);
         if (existing == null) {
-          out.add(RecentCategory(name: view.name, items: deduped));
+          out.add(
+            RecentCategory(name: view.name, items: deduped, libraries: [ref]),
+          );
         } else {
           final existingKeys = existing.items.map(_videoKey).toSet();
           final merged = [
@@ -281,6 +322,7 @@ class RealVideoRepository implements VideoRepository {
           out[out.indexOf(existing)] = RecentCategory(
             name: existing.name,
             items: merged,
+            libraries: [...existing.libraries, ref],
           );
         }
       }
@@ -355,6 +397,45 @@ class RealVideoRepository implements VideoRepository {
       _videoKey,
       serverId: serverId,
     );
+  }
+
+  @override
+  Future<List<VideoItem>> libraryItems({
+    required List<LibraryRef> libraries,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    if (!hasCredentials || libraries.isEmpty) return [];
+    // Pagination is over the merged list, so each library is read
+    // from the start up to offset+limit and the merged page is
+    // sliced out — a per-library offset would skip merged items.
+    final fetchLimit = offset + limit;
+    final out = <VideoItem>[];
+    final seen = <String>{};
+    for (final ref in libraries) {
+      final entry = _clients.where((e) => e.$1.id == ref.serverId).firstOrNull;
+      if (entry == null) continue;
+      final (_, client) = entry;
+      late final List<VideoItem> items;
+      try {
+        final uid = await client.userId();
+        items = await client.getItems(
+          parentId: ref.libraryId,
+          userId: uid,
+          sortBy: 'SortName',
+          sortOrder: 'Ascending',
+          limit: fetchLimit,
+          startIndex: 0,
+        );
+      } on ApiException {
+        // One dead library must not blank the others.
+        continue;
+      }
+      for (final item in items) {
+        if (seen.add(_videoKey(item))) out.add(item);
+      }
+    }
+    return out.skip(offset).take(limit).toList();
   }
 
   @override

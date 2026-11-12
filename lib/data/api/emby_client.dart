@@ -718,7 +718,11 @@ class EmbyClient {
       backdropUrl: imageUrl(id, type: 'Backdrop'),
       type: '${json['Type'] ?? 'Movie'}',
       durationSeconds: ticks ~/ 10000000,
-      episodeCount: (json['ChildCount'] as num?)?.toInt() ?? 0,
+      // ChildCount is the episode count, but only for series: a
+      // movie or episode must never show a count.
+      episodeCount: json['Type'] == 'Series'
+          ? (json['ChildCount'] as num?)?.toInt()
+          : null,
       progress: progress.toDouble().clamp(0.0, 1.0),
       playbackPositionSeconds: positionSeconds.toInt(),
       serverId: server.id,

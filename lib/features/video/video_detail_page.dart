@@ -179,6 +179,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       if (item.year != null) '${item.year}',
       item.durationText,
       item.typeLabel,
+      if (item.episodeCountText != null) item.episodeCountText!,
       item.sourceLabel,
     ].join(' · ');
     final playLabel = item.playbackPositionSeconds > 0

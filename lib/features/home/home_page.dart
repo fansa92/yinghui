@@ -14,6 +14,7 @@ import '../../data/repositories/server_store.dart';
 import '../../data/repositories/video_repository.dart';
 import '../music/album_detail_page.dart';
 import '../player/player_service.dart';
+import '../video/category_items_page.dart';
 import '../video/video_detail_page.dart';
 
 /// Home: search, server status, continue watching/listening,
@@ -135,6 +136,20 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute<void>(
         builder: (_) => VideoDetailPage(
           item: item,
+          repo: widget.videoRepo,
+          history: widget.history,
+          settings: widget.settings,
+        ),
+      ),
+    );
+  }
+
+  void _openCategory(RecentCategory category) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CategoryItemsPage(
+          title: category.name,
+          libraries: category.libraries,
           repo: widget.videoRepo,
           history: widget.history,
           settings: widget.settings,
@@ -346,17 +361,39 @@ class _HomePageState extends State<HomePage> {
                       ),
                     for (final category in _recentVideoCategories) ...[
                       // A library name ("电影" / "电视剧") heads its own
-                      // row; the single fake category is just "最近添加".
-                      if (category.name != '最近添加') ...[
+                      // row, with a "更多" button when the category has
+                      // a library behind it; the single fake category
+                      // is just "最近添加".
+                      if (category.name != '最近添加' ||
+                          category.libraries.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            category.name,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          child: Row(
+                            children: [
+                              if (category.name != '最近添加')
+                                Text(
+                                  category.name,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              const Spacer(),
+                              if (category.libraries.isNotEmpty)
+                                TextButton(
+                                  onPressed: () => _openCategory(category),
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('更多 ›'),
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -368,12 +405,17 @@ class _HomePageState extends State<HomePage> {
                           separatorBuilder: (_, _) => const SizedBox(width: 12),
                           itemBuilder: (context, i) {
                             final v = category.items[i];
+                            final subtitle = [
+                              if (v.year != null) '${v.year}',
+                              v.typeLabel,
+                              if (v.episodeCountText != null)
+                                v.episodeCountText!,
+                            ].join(' · ');
                             return SizedBox(
                               width: 140,
                               child: _AlbumCard(
                                 title: v.title,
-                                subtitle: '${v.year ?? ''} · ${v.typeLabel}'
-                                    .trim(),
+                                subtitle: subtitle,
                                 onTap: () => _openVideo(v),
                               ),
                             );
