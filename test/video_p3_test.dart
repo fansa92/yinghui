@@ -380,17 +380,17 @@ void main() {
       expect(d.kind, PlaybackKind.direct);
     });
 
-    test('mkv/hevc/dts transcodes', () {
+    test('mkv/hevc/dts direct-plays: libmpv handles the codecs', () {
       final d = PlaybackDecider.decide(
         source(container: 'mkv', videoCodec: 'hevc', audioCodec: 'dts'),
       );
-      expect(d.isDirect, isFalse);
-      expect(d.kind, PlaybackKind.transcode);
+      expect(d.isDirect, isTrue);
+      expect(d.kind, PlaybackKind.direct);
     });
 
-    test('mp4/h264/ac3 transcodes (audio not in the direct list)', () {
+    test('mp4/h264/ac3 direct-plays: libmpv handles the audio codec', () {
       final d = PlaybackDecider.decide(source(audioCodec: 'ac3'));
-      expect(d.isDirect, isFalse);
+      expect(d.isDirect, isTrue);
     });
 
     test('server refusing direct play transcodes even for mp4/h264/aac', () {
@@ -407,7 +407,12 @@ void main() {
     test('subtitle index is carried into the transcode decision', () {
       const sub = SubtitleTrackInfo(index: 2, language: 'eng');
       final d = PlaybackDecider.decide(
-        source(container: 'mkv', videoCodec: 'hevc', audioCodec: 'dts'),
+        source(
+          container: 'mkv',
+          videoCodec: 'hevc',
+          audioCodec: 'dts',
+          supportsDirectPlay: false,
+        ),
         subtitle: sub,
       );
       expect(d.subtitleStreamIndex, 2);
@@ -503,7 +508,7 @@ void main() {
       expect(movies.map((m) => m.title), ['The Last Horizon']);
     });
 
-    test('decidePlayback: mkv/hevc transcodes to master.m3u8', () async {
+    test('decidePlayback: mkv/hevc direct-plays via stream URL', () async {
       await store.add(_server());
       final repo = makeRepo((s) => EmbyClient(s, dio: _embyDioForTests()));
       const item = VideoItem(
@@ -512,8 +517,8 @@ void main() {
         serverId: 'srv-emby',
       );
       final result = await repo.decidePlayback(item);
-      expect(result.decision.isDirect, isFalse);
-      expect(result.url, contains('/Videos/m1/master.m3u8'));
+      expect(result.decision.isDirect, isTrue);
+      expect(result.url, contains('/Videos/m1/stream'));
     });
 
     test('decidePlayback: mp4/h264/aac direct-plays via stream URL', () async {
@@ -706,6 +711,7 @@ class _FakeVideoBackend implements VideoBackend {
   final _position = StreamController<Duration>.broadcast();
   final _duration = StreamController<Duration>.broadcast();
   final _completed = StreamController<bool>.broadcast();
+  final _buffering = StreamController<bool>.broadcast();
 
   String? openedUrl;
   Duration? openedStart;
@@ -722,6 +728,9 @@ class _FakeVideoBackend implements VideoBackend {
   Stream<Duration> get duration => _duration.stream;
   @override
   Stream<bool> get completed => _completed.stream;
+
+  @override
+  Stream<bool> get buffering => _buffering.stream;
   @override
   Object? get videoController => null;
 
@@ -761,6 +770,7 @@ class _FakeVideoBackend implements VideoBackend {
     await _position.close();
     await _duration.close();
     await _completed.close();
+    await _buffering.close();
   }
 }
 
@@ -774,6 +784,7 @@ class _ThrowingVideoRepo implements VideoRepository {
     VideoItem item, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
+    List<MediaSourceInfo>? sources,
   }) async {
     throw ApiException('Emby returned no media sources');
   }

@@ -572,6 +572,7 @@ class _DesktopFakeVideoBackend implements VideoBackend {
   final _position = StreamController<Duration>.broadcast();
   final _duration = StreamController<Duration>.broadcast();
   final _completed = StreamController<bool>.broadcast();
+  final _buffering = StreamController<bool>.broadcast();
 
   Duration _positionValue = Duration.zero;
   Duration? lastSeek;
@@ -588,6 +589,9 @@ class _DesktopFakeVideoBackend implements VideoBackend {
   Stream<Duration> get duration => _duration.stream;
   @override
   Stream<bool> get completed => _completed.stream;
+
+  @override
+  Stream<bool> get buffering => _buffering.stream;
   @override
   Object? get videoController => null;
 
@@ -632,6 +636,7 @@ class _DesktopFakeVideoBackend implements VideoBackend {
     await _position.close();
     await _duration.close();
     await _completed.close();
+    await _buffering.close();
   }
 }
 
@@ -645,6 +650,7 @@ class _DesktopFakeVideoRepo implements VideoRepository {
     VideoItem item, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
+    List<MediaSourceInfo>? sources,
   }) async {
     return (
       decision: const PlaybackDecision(kind: PlaybackKind.direct),

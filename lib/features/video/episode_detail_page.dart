@@ -113,6 +113,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
           repo: widget.repo,
           history: widget.history,
           subtitles: _detail?.allSubtitles ?? const [],
+          mediaSources: _detail?.mediaSources ?? const [],
           settings: widget.settings,
           appState: widget.appState,
         ),

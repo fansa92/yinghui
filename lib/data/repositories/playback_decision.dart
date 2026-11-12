@@ -46,16 +46,19 @@ class PlaybackDecision {
 
 /// Pure direct-play vs transcode decision, from one Emby media source.
 ///
-/// Rule (documented, conservative by design):
+/// Rule: direct play whenever the server allows it
+/// ([MediaSourceInfo.supportsDirectPlay]) and the user picked Direct
+/// quality. This player is libmpv, which plays the containers and
+/// codecs Emby serves (mkv, hevc/h265, vp9/av1, dts/truehd, flac…)
+/// natively — there is no mp4/h264/aac-only restriction.
 ///
-/// * Direct play only when the server allows it (`supportsDirectPlay`)
-///   AND the container is mp4/m4v/mov AND the video codec is h264 AND
-///   the audio codec is aac or mp3. Everything else — mkv, hevc/h265,
-///   vp9/av1, dts/truehd/flac audio, or a server that says no — goes
-///   through **server-side Emby transcoding** (HLS master.m3u8). There
-///   is no local FFmpeg transcoding in P3, per the settled design;
-///   libmpv could direct-play more containers, but the Emby contract
-///   above is what the server guarantees.
+/// The old rule (direct only for mp4/m4v/mov + h264 + aac/mp3) forced
+/// nearly every file through server-side HLS transcoding. On a shared
+/// or slow server the transcode takes forever to produce its first
+/// segment — or never does (transcoding disabled for the account, no
+/// ffmpeg) — and the video never starts, while the direct file would
+/// have played immediately. The server's flag stays the gate: when
+/// the server says direct play is not supported, transcode.
 ///
 /// * A user-picked quality other than Direct always forces transcoding
 ///   with that quality's bitrate ceiling, even for an otherwise
@@ -65,35 +68,12 @@ class PlaybackDecision {
 ///   (SubtitleStreamIndex); for direct play the player loads it as an
 ///   external track instead (see VideoPlayerService).
 class PlaybackDecider {
-  static const directContainers = {'mp4', 'm4v', 'mov'};
-  static const directVideoCodecs = {'h264'};
-  static const directAudioCodecs = {'aac', 'mp3'};
-
   static PlaybackDecision decide(
     MediaSourceInfo source, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
   }) {
-    final videoCodec = (source.videoCodec ?? '').toLowerCase();
-    final audioCodec = (source.audioCodec ?? '').toLowerCase();
-    final container = source.container.toLowerCase();
-    // A file with no audio stream at all (video-only) has no audio
-    // codec to check — a missing audio codec alone must not force a
-    // transcode. Only when the source actually carries audio streams
-    // (or reports an audio codec) does the codec have to be in the
-    // direct list. With no stream info and no audio codec the call
-    // stays conservative (transcode).
-    final hasAudioStream = source.streams.any((s) => s.type == 'Audio');
-    final audioOk =
-        (source.streams.isNotEmpty && !hasAudioStream) ||
-        directAudioCodecs.contains(audioCodec);
-    final directPlayable =
-        source.supportsDirectPlay &&
-        directContainers.contains(container) &&
-        directVideoCodecs.contains(videoCodec) &&
-        audioOk;
-
-    if (quality != VideoQuality.direct || !directPlayable) {
+    if (quality != VideoQuality.direct || !source.supportsDirectPlay) {
       return PlaybackDecision(
         kind: PlaybackKind.transcode,
         maxStreamingBitrate: quality.maxStreamingBitrate,
@@ -102,8 +82,8 @@ class PlaybackDecider {
     }
     return PlaybackDecision(
       kind: PlaybackKind.direct,
-      videoCodec: videoCodec,
-      audioCodec: audioCodec,
+      videoCodec: (source.videoCodec ?? '').toLowerCase(),
+      audioCodec: (source.audioCodec ?? '').toLowerCase(),
     );
   }
 }

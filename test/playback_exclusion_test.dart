@@ -485,6 +485,7 @@ class _FakeVideoBackend implements VideoBackend {
   final _position = StreamController<Duration>.broadcast();
   final _duration = StreamController<Duration>.broadcast();
   final _completed = StreamController<bool>.broadcast();
+  final _buffering = StreamController<bool>.broadcast();
 
   String? openedUrl;
   Duration? openedStart;
@@ -502,6 +503,9 @@ class _FakeVideoBackend implements VideoBackend {
   Stream<Duration> get duration => _duration.stream;
   @override
   Stream<bool> get completed => _completed.stream;
+
+  @override
+  Stream<bool> get buffering => _buffering.stream;
   @override
   Object? get videoController => null;
 
@@ -541,5 +545,6 @@ class _FakeVideoBackend implements VideoBackend {
     await _position.close();
     await _duration.close();
     await _completed.close();
+    await _buffering.close();
   }
 }

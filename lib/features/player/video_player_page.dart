@@ -45,6 +45,7 @@ class VideoPlayerPage extends StatefulWidget {
     required this.repo,
     required this.history,
     this.subtitles = const [],
+    this.mediaSources = const [],
     this.service,
     this.settings,
     this.appState,
@@ -58,6 +59,13 @@ class VideoPlayerPage extends StatefulWidget {
 
   /// Subtitle tracks from the item detail (may be empty).
   final List<SubtitleTrackInfo> subtitles;
+
+  /// Media sources already probed by the detail page (may be empty).
+  /// When non-empty the player re-uses them instead of probing
+  /// PlaybackInfo again before opening — the probe is the slowest
+  /// step on the tap-to-first-frame path.
+  final List<MediaSourceInfo> mediaSources;
+
   final VideoPlayerService? service;
 
   /// Optional Settings (P5): default quality, subtitle on/off and
@@ -114,6 +122,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   bool _fullscreen = false;
   Timer? _hideTimer;
 
+  /// Time chip mode: elapsed vs remaining (NextPlayer toggles the
+  /// time display on tap).
+  bool _showRemainingTime = false;
+
+  /// Double-tap seek feedback ("−10秒 · 12:34"), cleared ~1s after
+  /// the last double-tap — NextPlayer's centre seek indicator.
+  String? _seekIndicatorText;
+  Timer? _seekIndicatorTimer;
+
+  /// How long the player open may take before the page stops
+  /// spinning and shows the error with retry. Opening only issues
+  /// the load command to libmpv, so 30s is generous.
+  static const _openTimeout = Duration(seconds: 30);
+
   PlaybackDecision? _decision;
   VideoQuality _quality = VideoQuality.direct;
   SubtitleTrackInfo? _subtitle;
@@ -162,6 +184,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         widget.item,
         quality: _quality,
         subtitle: _subtitle,
+        sources: widget.mediaSources.isEmpty ? null : widget.mediaSources,
       );
       if (!mounted) return;
       _decision = result.decision;
@@ -175,12 +198,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           : (resume
                 ? Duration(seconds: widget.item.playbackPositionSeconds)
                 : Duration.zero);
-      await _service.open(
-        result.url,
-        _trackFor(widget.item),
-        startPosition: startPosition,
-        onCompleted: _onCompleted,
-      );
+      // Player.open only issues the load command to libmpv — it does
+      // not wait for the first frame — so it should return in seconds.
+      // If it does not (backend stuck, stream never accepted), stop
+      // spinning and show the error instead of loading forever.
+      await _service
+          .open(
+            result.url,
+            _trackFor(widget.item),
+            startPosition: startPosition,
+            onCompleted: _onCompleted,
+          )
+          .timeout(
+            _openTimeout,
+            onTimeout: () {
+              throw TimeoutException('打开视频超时', _openTimeout);
+            },
+          );
       if (!mounted) return;
       // Direct play: the initial / default subtitle is an external
       // track and is only applied by setSubtitleTrack — deciding alone
@@ -206,7 +240,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        // A timeout is a hang, not a detail: show a short message
+        // instead of the raw TimeoutException dump.
+        _error = e is TimeoutException ? '打开视频超时，请检查网络后重试。' : '$e';
       });
     }
   }
@@ -338,6 +374,30 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (_controlsVisible) _scheduleHide();
   }
 
+  /// Double-tap the left/right half of the video to seek ∓10s,
+  /// NextPlayer-style, with a centred indicator showing the jump and
+  /// the target position. Single taps still just toggle the controls
+  /// (the gesture arena separates the two).
+  void _onDoubleTapSeek(TapDownDetails details) {
+    final width = MediaQuery.of(context).size.width;
+    final isLeft = details.localPosition.dx < width / 2;
+    final offset = Duration(seconds: isLeft ? -10 : 10);
+    final duration = _service.duration.inSeconds > 0
+        ? _service.duration
+        : Duration(seconds: widget.item.durationSeconds);
+    var target = _service.position + offset;
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+    unawaited(_seekBy(offset));
+    setState(() {
+      _seekIndicatorText = '${isLeft ? '−10秒' : '+10秒'} · ${_clock(target)}';
+    });
+    _seekIndicatorTimer?.cancel();
+    _seekIndicatorTimer = Timer(const Duration(seconds: 1), () {
+      if (mounted) setState(() => _seekIndicatorText = null);
+    });
+  }
+
   Future<void> _togglePlay() async {
     await _service.togglePlay();
     if (!mounted) return;
@@ -466,6 +526,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _seekIndicatorTimer?.cancel();
     _upNextTimer?.cancel();
     _focusNode.dispose();
     unawaited(_reportFinalPosition());
@@ -553,18 +614,51 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         final position = _service.position.inSeconds > duration.inSeconds
             ? duration
             : _service.position;
-        return GestureDetector(
-          onTap: _onTapVideo,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              controller == null
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Tap / double-tap live on the video layer only, NOT
+            // around the whole stack: if the detector were an
+            // ancestor of the control buttons, every button tap
+            // would wait out the 300ms double-tap timeout before
+            // firing. As a sibling below the overlay, taps on
+            // buttons go straight to the button, and taps on the
+            // overlay's empty areas fall through to the video.
+            GestureDetector(
+              onTap: _onTapVideo,
+              onDoubleTapDown: _onDoubleTapSeek,
+              child: controller == null
                   ? _posterFallback()
                   : Video(controller: controller),
-              if (_controlsVisible) _controlsOverlay(position, duration),
-              if (_showUpNext) _upNextCard(),
-            ],
-          ),
+            ),
+            if (_service.isBuffering)
+              const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+            if (_seekIndicatorText != null)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _seekIndicatorText!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            if (_controlsVisible) _controlsOverlay(position, duration),
+            if (_showUpNext) _upNextCard(),
+          ],
         );
       },
     );
@@ -713,144 +807,203 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     );
   }
 
+  /// Controls overlay, NextPlayer-style layout (structure only, no
+  /// code or branding copied): three zones over the video — a top bar
+  /// (back + title + track buttons), a centred middle row (seek back /
+  /// play-pause / seek forward), and a bottom block (time chip, seek
+  /// bar, action row). The overlay fades with [_controlsVisible] as
+  /// before; styles only change the accent colour and the style-only
+  /// extras (Netflix next episode, Apple TV Up Next).
   Widget _controlsOverlay(Duration position, Duration duration) {
     return Column(
       children: [
-        // Top bar: back + title.
-        Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black54, Colors.transparent],
-            ),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-              Expanded(
-                child: Text(
-                  widget.item.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (_decision != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Chip(
-                    label: Text(
-                      _decision!.isDirect ? '直接播放' : '转码',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    backgroundColor: Colors.black54,
-                  ),
-                ),
-            ],
-          ),
-        ),
+        _topBar(),
+        const Spacer(),
+        _middleControls(),
         const Spacer(),
         if (_showShortcutsHint) _shortcutsHint(),
-        // Bottom controls.
-        Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [Colors.black87, Colors.transparent],
+        _bottomBar(position, duration),
+      ],
+    );
+  }
+
+  /// Top bar: back button, title (weight 1, up to 2 lines), then the
+  /// play-mode chip and the track buttons on the right — subtitles
+  /// and quality moved up here from the bottom row, where NextPlayer
+  /// puts its audio/subtitle/playlist buttons.
+  Widget _topBar() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.black54, Colors.transparent],
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            tooltip: '返回',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          Expanded(
+            child: Text(
+              widget.item.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    _clock(position),
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  Expanded(
-                    child: Slider(
-                      value: position.inMilliseconds.toDouble(),
-                      max: duration.inMilliseconds.toDouble() > 0
-                          ? duration.inMilliseconds.toDouble()
-                          : 1,
-                      onChanged: (value) =>
-                          _service.seek(Duration(milliseconds: value.round())),
-                      activeColor: _accent,
-                    ),
-                  ),
-                  Text(
-                    _clock(duration),
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ],
+          if (_decision != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Chip(
+                label: Text(
+                  _decision!.isDirect ? '直接播放' : '转码',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                backgroundColor: Colors.black54,
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.subtitles, color: Colors.white),
-                    tooltip: '字幕',
-                    onPressed: widget.subtitles.isEmpty ? null : _pickSubtitle,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.high_quality, color: Colors.white),
-                    tooltip: '清晰度',
-                    onPressed: _pickQuality,
-                  ),
-                  if (_style == VideoPlayerStyle.appleTv)
-                    IconButton(
-                      icon: const Icon(Icons.replay_10, color: Colors.white),
-                      tooltip: '快退 10 秒',
-                      onPressed: () => _seekBy(const Duration(seconds: -10)),
-                    ),
-                  IconButton(
-                    icon: Icon(
-                      _service.isPlaying
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_filled,
-                      size: 56,
-                      color: _accent,
-                    ),
-                    onPressed: _togglePlay,
-                  ),
-                  if (_style == VideoPlayerStyle.appleTv)
-                    IconButton(
-                      icon: const Icon(Icons.forward_10, color: Colors.white),
-                      tooltip: '快进 10 秒',
-                      onPressed: () => _seekBy(const Duration(seconds: 10)),
-                    ),
-                  if (_style == VideoPlayerStyle.netflix && _hasNext)
-                    IconButton(
-                      icon: const Icon(Icons.skip_next, color: Colors.white),
-                      tooltip: '下一集',
-                      onPressed: _playNext,
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.fullscreen, color: Colors.white),
-                    tooltip: '全屏',
-                    onPressed: _toggleFullscreen,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    tooltip: '关闭',
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ],
+            ),
+          IconButton(
+            icon: const Icon(Icons.subtitles, color: Colors.white),
+            tooltip: '字幕',
+            onPressed: widget.subtitles.isEmpty ? null : _pickSubtitle,
           ),
+          IconButton(
+            icon: const Icon(Icons.high_quality, color: Colors.white),
+            tooltip: '清晰度',
+            onPressed: _pickQuality,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Centred middle row: seek back 10s, big play/pause, seek forward
+  /// 10s. The ±10s buttons used to live in the bottom row and only in
+  /// the Apple TV style; NextPlayer puts them in the centre for every
+  /// video, so they are here for all styles now.
+  Widget _middleControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      spacing: 40,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.replay_10, color: Colors.white, size: 40),
+          tooltip: '快退 10 秒',
+          onPressed: () => _seekBy(const Duration(seconds: -10)),
+        ),
+        IconButton(
+          icon: Icon(
+            _service.isPlaying
+                ? Icons.pause_circle_filled
+                : Icons.play_circle_filled,
+            size: 64,
+            color: _accent,
+          ),
+          tooltip: _service.isPlaying ? '暂停' : '播放',
+          onPressed: _togglePlay,
+        ),
+        IconButton(
+          icon: const Icon(Icons.forward_10, color: Colors.white, size: 40),
+          tooltip: '快进 10 秒',
+          onPressed: () => _seekBy(const Duration(seconds: 10)),
         ),
       ],
     );
+  }
+
+  /// Bottom block: a tappable time chip (toggles elapsed / remaining,
+  /// NextPlayer-style), the seek bar, and a scrollable action row
+  /// (fullscreen, close, Netflix next episode).
+  Widget _bottomBar(Duration position, Duration duration) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Colors.black87, Colors.transparent],
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              TextButton(
+                onPressed: () =>
+                    setState(() => _showRemainingTime = !_showRemainingTime),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.black54,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  _timeText(position, duration),
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Slider(
+            value: position.inMilliseconds.toDouble(),
+            max: duration.inMilliseconds.toDouble() > 0
+                ? duration.inMilliseconds.toDouble()
+                : 1,
+            onChanged: (value) =>
+                _service.seek(Duration(milliseconds: value.round())),
+            activeColor: _accent,
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.fullscreen, color: Colors.white),
+                  tooltip: '全屏',
+                  onPressed: _toggleFullscreen,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                if (_style == VideoPlayerStyle.netflix && _hasNext)
+                  IconButton(
+                    icon: const Icon(Icons.skip_next, color: Colors.white),
+                    tooltip: '下一集',
+                    onPressed: _playNext,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "elapsed / total", or "-remaining / total" when the time chip
+  /// was tapped. Without a known duration there is nothing to count
+  /// down from, so it stays elapsed-only.
+  String _timeText(Duration position, Duration duration) {
+    if (!_showRemainingTime || duration.inSeconds <= 0) {
+      return '${_clock(position)} / ${_clock(duration)}';
+    }
+    final remaining = duration - position;
+    return '-${_clock(remaining.isNegative ? Duration.zero : remaining)}'
+        ' / ${_clock(duration)}';
   }
 }

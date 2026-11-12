@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../core/errors.dart';
 import '../../core/models/server.dart';
 import '../api/emby_client.dart';
@@ -63,10 +65,16 @@ abstract class VideoRepository {
   Future<VideoDetail> itemDetail(String itemId, String serverId);
 
   /// Direct-play vs transcode decision for one item, as a playable URL.
+  ///
+  /// [sources] are media sources already fetched (e.g. the detail
+  /// page's PlaybackInfo call). When non-empty the probe is skipped:
+  /// the detail page already paid for it, and probing again before
+  /// every open is the slowest step on the tap-to-first-frame path.
   Future<({PlaybackDecision decision, String url})> decidePlayback(
     VideoItem item, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
+    List<MediaSourceInfo>? sources,
   });
 
   /// Stream URL for an external subtitle track (direct play only;
@@ -400,9 +408,17 @@ class RealVideoRepository implements VideoRepository {
       );
       return SeriesDetail(series: fake);
     }
-    final detail = await client.getItemDetail(seriesId);
-    final seasons = await client.getSeasons(seriesId);
-    final episodes = await client.getEpisodes(seriesId);
+    // Detail, seasons and episodes are independent reads: fetch them
+    // concurrently instead of one after another, so the series page
+    // waits ~1 round trip, not 3.
+    final results = await Future.wait([
+      client.getItemDetail(seriesId),
+      client.getSeasons(seriesId),
+      client.getEpisodes(seriesId),
+    ]);
+    final detail = results[0] as VideoDetail;
+    final seasons = results[1] as List<Season>;
+    final episodes = results[2] as List<VideoItem>;
     // The server does not guarantee order: seasons by IndexNumber
     // (Specials first), episodes by season then episode number, so the
     // detail page never shows E2 before E1.
@@ -437,16 +453,19 @@ class RealVideoRepository implements VideoRepository {
           );
       return VideoDetail(item: fake);
     }
-    final detail = await client.getItemDetail(itemId);
+    final detailFuture = client.getItemDetail(itemId);
+    final sourcesFuture = _playbackInfoOrEmpty(client, itemId);
+    final detail = await detailFuture;
     // Media info (video/audio/subtitle streams) comes from
     // PlaybackInfo, not from the detail endpoint. A failure here must
     // not break the detail page — it just shows "暂无媒体信息".
-    List<MediaSourceInfo> sources = const [];
-    try {
-      sources = await client.getPlaybackInfo(itemId);
-    } on ApiException {
-      sources = const [];
-    }
+    //
+    // The detail and the PlaybackInfo probe are independent reads:
+    // start the probe at the same time as the detail instead of after
+    // it, so the page waits ~1 round trip, not 2. The probe is also
+    // what the player re-uses at open time (see decidePlayback), so
+    // paying for it once here saves a second probe later.
+    final sources = await sourcesFuture;
     if (detail.item.type == 'Series') {
       final seasons = await client.getSeasons(itemId);
       return VideoDetail(
@@ -463,21 +482,59 @@ class RealVideoRepository implements VideoRepository {
     );
   }
 
+  /// PlaybackInfo for one item, or empty when the probe fails. The
+  /// detail page must not break on a probe failure — it just shows
+  /// "暂无媒体信息" — and the player falls back to probing at open
+  /// time when no sources were cached.
+  Future<List<MediaSourceInfo>> _playbackInfoOrEmpty(
+    EmbyClient client,
+    String itemId,
+  ) async {
+    try {
+      return await client.getPlaybackInfo(itemId);
+    } on ApiException {
+      return const [];
+    }
+  }
+
+  /// How long the PlaybackInfo probe may take before the player
+  /// gives up on it and just plays the direct stream URL instead.
+  /// The probe makes the server inspect the file, which on a slow or
+  /// shared server can take tens of seconds — longer than the whole
+  /// open should take.
+  static const probeTimeout = Duration(seconds: 15);
+
   @override
   Future<({PlaybackDecision decision, String url})> decidePlayback(
     VideoItem item, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
+    List<MediaSourceInfo>? sources,
   }) async {
     final client = _clientFor(item.serverId);
     if (client == null) {
       throw ApiException('No Emby client for server ${item.serverId}');
     }
-    final sources = await client.getPlaybackInfo(item.id);
-    if (sources.isEmpty) {
+    // Re-use sources the detail page already probed when they are
+    // given: the probe is a POST that makes the server inspect the
+    // file, and re-probing before every open is the slowest step on
+    // the tap-to-first-frame path. Without cached sources, probe now.
+    final mediaSources = (sources != null && sources.isNotEmpty)
+        ? sources
+        : await _probeSources(client, item);
+    if (mediaSources == null) {
+      // The probe failed or timed out (see _probeSources): fall back
+      // to the direct stream URL, which needs no probe at all. A slow
+      // or broken probe must not stop the video from starting.
+      return (
+        decision: const PlaybackDecision(kind: PlaybackKind.direct),
+        url: client.videoStreamUrl(item.id),
+      );
+    }
+    if (mediaSources.isEmpty) {
       throw ApiException('Emby returned no media sources for ${item.title}');
     }
-    final source = sources.first;
+    final source = mediaSources.first;
     final decision = PlaybackDecider.decide(
       source,
       quality: quality,
@@ -494,6 +551,28 @@ class RealVideoRepository implements VideoRepository {
             subtitleStreamIndex: decision.subtitleStreamIndex,
           );
     return (decision: decision, url: url);
+  }
+
+  /// Probe PlaybackInfo for one item. Returns null (instead of
+  /// throwing) when the probe cannot answer: timed out, unreachable,
+  /// or a server error. Those are not decisive — the direct stream
+  /// URL works without any probe. Auth errors (401/403) and
+  /// not-found (404) are rethrown: the stream would fail the same
+  /// way, so the player shows the error instead of a black screen.
+  Future<List<MediaSourceInfo>?> _probeSources(
+    EmbyClient client,
+    VideoItem item,
+  ) async {
+    try {
+      return await client.getPlaybackInfo(item.id).timeout(probeTimeout);
+    } on TimeoutException {
+      return null;
+    } on ApiException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403 || e.statusCode == 404) {
+        rethrow;
+      }
+      return null;
+    }
   }
 
   @override

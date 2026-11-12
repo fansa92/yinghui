@@ -530,12 +530,27 @@ void main() {
       expect(PlaybackDecider.decide(source).isDirect, isTrue);
     });
 
-    test('no stream info at all and no audio codec stays conservative', () {
+    test('no stream info at all still direct-plays when server allows it', () {
+      // The old rule stayed conservative without stream info; the new
+      // rule trusts the server's SupportsDirectPlay flag instead —
+      // libmpv plays the file either way, and withholding direct play
+      // over missing metadata only forced a slow transcode.
       const source = MediaSourceInfo(
         id: 'ms1',
         container: 'mp4',
         videoCodec: 'h264',
         audioCodec: null,
+      );
+      expect(PlaybackDecider.decide(source).isDirect, isTrue);
+    });
+
+    test('server says direct play unsupported stays transcode', () {
+      const source = MediaSourceInfo(
+        id: 'ms1',
+        container: 'mp4',
+        videoCodec: 'h264',
+        audioCodec: null,
+        supportsDirectPlay: false,
       );
       expect(PlaybackDecider.decide(source).isDirect, isFalse);
     });
@@ -899,6 +914,7 @@ class _FixFakeVideoBackend implements VideoBackend {
   final _position = StreamController<Duration>.broadcast();
   final _duration = StreamController<Duration>.broadcast();
   final _completed = StreamController<bool>.broadcast();
+  final _buffering = StreamController<bool>.broadcast();
 
   String? openedUrl;
   Duration? openedStart;
@@ -916,6 +932,9 @@ class _FixFakeVideoBackend implements VideoBackend {
   Stream<Duration> get duration => _duration.stream;
   @override
   Stream<bool> get completed => _completed.stream;
+
+  @override
+  Stream<bool> get buffering => _buffering.stream;
   @override
   Object? get videoController => null;
 
@@ -955,6 +974,7 @@ class _FixFakeVideoBackend implements VideoBackend {
     await _position.close();
     await _duration.close();
     await _completed.close();
+    await _buffering.close();
   }
 }
 
@@ -1051,6 +1071,7 @@ class _FixFakeVideoRepo implements VideoRepository {
     VideoItem item, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
+    List<MediaSourceInfo>? sources,
   }) async {
     lastQuality = quality;
     if (quality == VideoQuality.direct) {

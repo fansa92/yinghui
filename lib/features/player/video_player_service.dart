@@ -20,6 +20,10 @@ abstract class VideoBackend {
   Stream<Duration> get duration;
   Stream<bool> get completed;
 
+  /// True while the backend is stalled waiting for data (buffering).
+  /// Drives the centred spinner, NextPlayer-style.
+  Stream<bool> get buffering;
+
   /// The media_kit_video VideoController for the [Video] widget, or
   /// null when the backend has no picture (fake backend in tests).
   Object? get videoController;
@@ -57,6 +61,9 @@ class MediaKitVideoBackend implements VideoBackend {
 
   @override
   Stream<bool> get completed => _player.stream.completed;
+
+  @override
+  Stream<bool> get buffering => _player.stream.buffering;
 
   @override
   Object? get videoController => _controller;
@@ -131,6 +138,7 @@ class VideoPlayerService extends ChangeNotifier implements PausablePlayback {
   Track? _track;
   VoidCallback? _onCompleted;
   bool _playing = false;
+  bool _buffering = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _completedFired = false;
@@ -138,6 +146,9 @@ class VideoPlayerService extends ChangeNotifier implements PausablePlayback {
   Track? get track => _track;
   bool get hasVideo => _track != null;
   bool get isPlaying => _playing;
+
+  /// True while the backend is stalled waiting for data.
+  bool get isBuffering => _buffering;
   Duration get position => _position;
   Duration get duration => _duration;
   Object? get videoController => _backend?.videoController;
@@ -156,6 +167,10 @@ class VideoPlayerService extends ChangeNotifier implements PausablePlayback {
         }),
         backend.duration.listen((duration) {
           _duration = duration;
+          notifyListeners();
+        }),
+        backend.buffering.listen((buffering) {
+          _buffering = buffering;
           notifyListeners();
         }),
         backend.completed.listen((completed) {

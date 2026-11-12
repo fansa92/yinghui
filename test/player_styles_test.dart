@@ -402,7 +402,7 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     }
 
-    testWidgets('default: green progress, no next or ±10s buttons', (
+    testWidgets('default: green progress, no next button, ±10s centred', (
       tester,
     ) async {
       final backend = _StyleFakeVideoBackend();
@@ -416,8 +416,10 @@ void main() {
       final slider = tester.widget<Slider>(find.byType(Slider));
       expect(slider.activeColor, YingHuiTheme.primaryGreen);
       expect(find.byTooltip('下一集'), findsNothing);
-      expect(find.byTooltip('快退 10 秒'), findsNothing);
-      expect(find.byTooltip('快进 10 秒'), findsNothing);
+      // NextPlayer layout: the ±10s buttons live in the centre row
+      // for every style now, not only Apple TV.
+      expect(find.byTooltip('快退 10 秒'), findsOneWidget);
+      expect(find.byTooltip('快进 10 秒'), findsOneWidget);
     });
 
     testWidgets('netflix: red progress and a working Next Episode button', (
@@ -626,6 +628,7 @@ class _StyleFakeVideoBackend implements VideoBackend {
   final _position = StreamController<Duration>.broadcast();
   final _duration = StreamController<Duration>.broadcast();
   final _completed = StreamController<bool>.broadcast();
+  final _buffering = StreamController<bool>.broadcast();
 
   Duration? lastSeek;
 
@@ -639,6 +642,9 @@ class _StyleFakeVideoBackend implements VideoBackend {
   Stream<Duration> get duration => _duration.stream;
   @override
   Stream<bool> get completed => _completed.stream;
+
+  @override
+  Stream<bool> get buffering => _buffering.stream;
   @override
   Object? get videoController => null;
 
@@ -675,6 +681,7 @@ class _StyleFakeVideoBackend implements VideoBackend {
     await _position.close();
     await _duration.close();
     await _completed.close();
+    await _buffering.close();
   }
 }
 
@@ -689,6 +696,7 @@ class _StyleFakeVideoRepo implements VideoRepository {
     VideoItem item, {
     VideoQuality quality = VideoQuality.direct,
     SubtitleTrackInfo? subtitle,
+    List<MediaSourceInfo>? sources,
   }) async {
     return (
       decision: const PlaybackDecision(kind: PlaybackKind.direct),

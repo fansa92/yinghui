@@ -65,16 +65,20 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       _error = null;
     });
     try {
-      final detail = await widget.repo.itemDetail(
+      // Detail and series (seasons + episodes) are independent reads:
+      // fetch them at the same time instead of one after another, so
+      // a series page waits ~1 round trip, not 2.
+      final detailFuture = widget.repo.itemDetail(
         widget.item.id,
         widget.item.serverId,
       );
+      final seriesFuture = widget.item.type == 'Series'
+          ? widget.repo.seriesDetail(widget.item.id, widget.item.serverId)
+          : Future<SeriesDetail?>.value();
+      final detail = await detailFuture;
       SeriesDetail? seriesDetail;
       if (detail.item.type == 'Series') {
-        seriesDetail = await widget.repo.seriesDetail(
-          widget.item.id,
-          widget.item.serverId,
-        );
+        seriesDetail = await seriesFuture;
       }
       if (!mounted) return;
       setState(() {
@@ -110,6 +114,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
           repo: widget.repo,
           history: widget.history,
           subtitles: _detail?.allSubtitles ?? const [],
+          mediaSources: _detail?.mediaSources ?? const [],
           settings: widget.settings,
           appState: widget.appState,
           nextEpisode: _nextEpisode(item),
