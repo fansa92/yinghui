@@ -74,7 +74,7 @@ void main() {
               backdropUrl: null,
               title: 'Pilot',
               meta: 'S1E1 · 2024 · 48m · Demo Emby',
-              playLabel: 'Resume from 10:00',
+              playLabel: '从 10:00 继续播放',
               onPlay: _noop,
             ),
           ),
@@ -83,7 +83,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Pilot'), findsOneWidget);
       expect(find.text('S1E1 · 2024 · 48m · Demo Emby'), findsOneWidget);
-      expect(find.text('Resume from 10:00'), findsOneWidget);
+      expect(find.text('从 10:00 继续播放'), findsOneWidget);
       expect(find.byIcon(Icons.broken_image), findsNothing);
     });
 
@@ -115,7 +115,7 @@ void main() {
             body: BackdropHeader(
               backdropUrl: null,
               title: 'Dune',
-              meta: '2024 · 2h 46m · Movie · Demo Emby',
+              meta: '2024 · 2h 46m · 电影 · Demo Emby',
               genres: ['Sci-Fi', 'Drama'],
               playLabel: 'Play',
               onPlay: _noop,
@@ -198,7 +198,7 @@ void main() {
       // title is hidden in backdrop mode, so the title appears once).
       expect(find.text('Pilot'), findsOneWidget);
       expect(find.text('S1E1 · 2024 · 48m · Demo Emby'), findsOneWidget);
-      expect(find.text('Resume from 10:00'), findsOneWidget);
+      expect(find.text('从 10:00 继续播放'), findsOneWidget);
       expect(find.text('The crew sets out.'), findsOneWidget);
       expect(find.byIcon(Icons.broken_image), findsNothing);
     });
@@ -215,7 +215,7 @@ void main() {
       // App bar title + header title both show the episode name.
       expect(find.text('Pilot'), findsNWidgets(2));
       expect(find.text('S1E1 · 2024 · 48m · Demo Emby'), findsOneWidget);
-      expect(find.text('Resume from 10:00'), findsOneWidget);
+      expect(find.text('从 10:00 继续播放'), findsOneWidget);
     });
 
     testWidgets('backdrop header spans the centred width on desktop', (
@@ -296,10 +296,10 @@ void main() {
       expect(find.byType(BackdropHeader), findsOneWidget);
       expect(find.byType(PosterImage), findsNothing);
       expect(find.text('Dune'), findsOneWidget);
-      expect(find.text('2024 · 2h 46m · Movie · Demo Emby'), findsOneWidget);
+      expect(find.text('2024 · 2h 46m · 电影 · Demo Emby'), findsOneWidget);
       expect(find.text('Sci-Fi'), findsOneWidget);
       expect(find.text('Drama'), findsOneWidget);
-      expect(find.text('Play'), findsOneWidget);
+      expect(find.text('播放'), findsOneWidget);
       expect(find.text('Spice must flow.'), findsOneWidget);
       expect(find.text('Actor One'), findsOneWidget);
       expect(find.byIcon(Icons.broken_image), findsNothing);
@@ -366,7 +366,7 @@ void main() {
       );
       expect(find.byType(BackdropHeader), findsOneWidget);
       expect(find.text('Harbour Lights'), findsOneWidget);
-      expect(find.text('Episodes'), findsOneWidget);
+      expect(find.text('分集'), findsOneWidget);
       expect(find.text('S1E1 · Pilot'), findsOneWidget);
       expect(find.text('S1E2 · Storm'), findsOneWidget);
     });

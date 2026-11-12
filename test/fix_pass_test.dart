@@ -1031,7 +1031,7 @@ void _fixPassPart3() {
       backend.emitPosition(const Duration(seconds: 100));
       await tester.pump();
       // Pick 720p from the quality sheet.
-      await tester.tap(find.byTooltip('Quality'));
+      await tester.tap(find.byTooltip('清晰度'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('720p'));
       await tester.pump();
@@ -1662,12 +1662,12 @@ void _fixPassPart5() {
         ),
       );
       await tester.pump();
-      expect(find.text('No Navidrome account yet'), findsOneWidget);
+      expect(find.text('还没有 Navidrome 账号'), findsOneWidget);
       store.addServer(_server(id: 'srv-a', username: 'yang', token: 'pw'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.text('Midnight City'), findsOneWidget);
-      expect(find.text('No Navidrome account yet'), findsNothing);
+      expect(find.text('还没有 Navidrome 账号'), findsNothing);
     });
 
     testWidgets('VideoPage loads movies added to the store later', (
@@ -1723,7 +1723,7 @@ void _fixPassPart5() {
         ),
       );
       await tester.pump();
-      expect(find.text('No Emby account yet'), findsOneWidget);
+      expect(find.text('还没有 Emby 账号'), findsOneWidget);
       store.addServer(
         _server(
           id: 'srv-e',
@@ -1736,7 +1736,7 @@ void _fixPassPart5() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.text('The Last Horizon'), findsWidgets);
-      expect(find.text('No Emby account yet'), findsNothing);
+      expect(find.text('还没有 Emby 账号'), findsNothing);
     });
 
     testWidgets('DownloadsPage refreshes when a downloader is added later', (
@@ -1799,7 +1799,7 @@ void _fixPassPart5() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       repo.stopPolling();
-      expect(find.text('No downloader account yet'), findsOneWidget);
+      expect(find.text('还没有下载器账号'), findsOneWidget);
       store.addServer(
         _server(
           id: 'srv-qb',
@@ -1813,7 +1813,7 @@ void _fixPassPart5() {
       await tester.pump(const Duration(milliseconds: 100));
       repo.stopPolling();
       expect(find.text('Ubuntu.iso'), findsOneWidget);
-      expect(find.text('No downloader account yet'), findsNothing);
+      expect(find.text('还没有下载器账号'), findsNothing);
     });
   });
 
@@ -2023,7 +2023,7 @@ void _fixPassPart5() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
-      expect(find.textContaining('No servers yet'), findsWidgets);
+      expect(find.textContaining('还没有服务器'), findsWidgets);
       expect(find.text('The Last Horizon'), findsNothing);
       expect(find.text('Midnight City'), findsNothing);
       expect(find.text('Mountain Pass'), findsNothing);

@@ -65,6 +65,16 @@ class VideoItem {
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
+  /// Display label for the server item type ('Movie' / 'Series' /
+  /// 'Episode'), shown in list subtitles and the detail header. The raw
+  /// [type] stays English — it is also a code value (`type == 'Series'`).
+  String get typeLabel => switch (type) {
+    'Movie' => '电影',
+    'Series' => '剧集',
+    'Episode' => '单集',
+    _ => type,
+  };
+
   bool get isEpisode => type == 'Episode';
 
   VideoItem copyWith({

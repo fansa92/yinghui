@@ -144,10 +144,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       body: _loading
           ? const LoadingView()
           : _error != null
-          ? ErrorView(
-              message: 'Could not load details:\n$_error',
-              onRetry: _load,
-            )
+          ? ErrorView(message: '详情加载失败：\n$_error', onRetry: _load)
           : CenteredContent(child: _detailView()),
     );
   }
@@ -165,8 +162,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       item.sourceLabel,
     ].join(' · ');
     final playLabel = item.playbackPositionSeconds > 0
-        ? 'Resume from ${item.positionText}'
-        : 'Play';
+        ? '从 ${item.positionText} 继续播放'
+        : '播放';
     final source = _detail?.primarySource;
     final belowHeader = <Widget>[
       if (item.overview.isNotEmpty) ...[

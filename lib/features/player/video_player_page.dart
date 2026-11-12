@@ -380,7 +380,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           children: [
             ListTile(
               leading: const Icon(Icons.subtitles_off),
-              title: const Text('Off'),
+              title: const Text('关闭'),
               selected: _subtitle == null,
               onTap: () => Navigator.of(context).pop(-1),
             ),
@@ -441,10 +441,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               ),
               title: Text(q.label),
               subtitle: q == VideoQuality.direct
-                  ? const Text('No transcoding when the file allows it')
-                  : Text(
-                      'Transcode, max ${q.maxStreamingBitrate! ~/ 1000000} Mbps',
-                    ),
+                  ? const Text('文件支持时不转码')
+                  : Text('转码，最高 ${q.maxStreamingBitrate! ~/ 1000000} Mbps'),
               selected: _quality == q,
               onTap: () => Navigator.of(context).pop(q),
             );
@@ -520,13 +518,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text('Could not play:\n$_error', textAlign: TextAlign.center),
+            Text('无法播放：\n$_error', textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            FilledButton(onPressed: _open, child: const Text('Retry')),
+            FilledButton(onPressed: _open, child: const Text('重试')),
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Back'),
+              child: const Text('返回'),
             ),
           ],
         ),
@@ -587,7 +585,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Keyboard shortcuts',
+                      '键盘快捷键',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -595,18 +593,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                     ),
                     SizedBox(height: 2),
                     Text(
-                      'Space · play / pause',
+                      '空格 · 播放 / 暂停',
                       style: TextStyle(color: Colors.white70),
                     ),
                     Text(
-                      '← → · seek 10 s',
+                      '← → · 快进 / 快退 10 秒',
                       style: TextStyle(color: Colors.white70),
                     ),
-                    Text(
-                      'F · fullscreen',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                    Text('Esc · exit', style: TextStyle(color: Colors.white70)),
+                    Text('F · 全屏', style: TextStyle(color: Colors.white70)),
+                    Text('Esc · 退出', style: TextStyle(color: Colors.white70)),
                   ],
                 ),
                 IconButton(
@@ -615,7 +610,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                     color: Colors.white70,
                     size: 18,
                   ),
-                  tooltip: 'Dismiss',
+                  tooltip: '知道了',
                   onPressed: () => setState(() => _showShortcutsHint = false),
                 ),
               ],
@@ -645,7 +640,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Up Next',
+                  '接下来播放',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 15,
@@ -661,7 +656,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Playing in $_upNextSecondsLeft s',
+                  '$_upNextSecondsLeft 秒后播放',
                   style: const TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 8),
@@ -669,13 +664,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   children: [
                     FilledButton(
                       onPressed: _playNext,
-                      child: const Text('Play now'),
+                      child: const Text('立即播放'),
                     ),
                     const SizedBox(width: 8),
                     TextButton(
                       onPressed: _dismissUpNext,
                       child: const Text(
-                        'Dismiss',
+                        '关闭',
                         style: TextStyle(color: Colors.white),
                       ),
                     ),
@@ -703,7 +698,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
             const Text(
-              'Video preview unavailable in this build',
+              '这个版本不支持视频预览',
               style: TextStyle(color: YingHuiTheme.textMuted),
             ),
           ],
@@ -746,7 +741,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   padding: const EdgeInsets.only(right: 8),
                   child: Chip(
                     label: Text(
-                      _decision!.isDirect ? 'Direct' : 'Transcode',
+                      _decision!.isDirect ? '直接播放' : '转码',
                       style: const TextStyle(fontSize: 12),
                     ),
                     backgroundColor: Colors.black54,
@@ -798,18 +793,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.subtitles, color: Colors.white),
-                    tooltip: 'Subtitles',
+                    tooltip: '字幕',
                     onPressed: widget.subtitles.isEmpty ? null : _pickSubtitle,
                   ),
                   IconButton(
                     icon: const Icon(Icons.high_quality, color: Colors.white),
-                    tooltip: 'Quality',
+                    tooltip: '清晰度',
                     onPressed: _pickQuality,
                   ),
                   if (_style == VideoPlayerStyle.appleTv)
                     IconButton(
                       icon: const Icon(Icons.replay_10, color: Colors.white),
-                      tooltip: 'Back 10 seconds',
+                      tooltip: '快退 10 秒',
                       onPressed: () => _seekBy(const Duration(seconds: -10)),
                     ),
                   IconButton(
@@ -825,23 +820,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   if (_style == VideoPlayerStyle.appleTv)
                     IconButton(
                       icon: const Icon(Icons.forward_10, color: Colors.white),
-                      tooltip: 'Forward 10 seconds',
+                      tooltip: '快进 10 秒',
                       onPressed: () => _seekBy(const Duration(seconds: 10)),
                     ),
                   if (_style == VideoPlayerStyle.netflix && _hasNext)
                     IconButton(
                       icon: const Icon(Icons.skip_next, color: Colors.white),
-                      tooltip: 'Next Episode',
+                      tooltip: '下一集',
                       onPressed: _playNext,
                     ),
                   IconButton(
                     icon: const Icon(Icons.fullscreen, color: Colors.white),
-                    tooltip: 'Fullscreen',
+                    tooltip: '全屏',
                     onPressed: _toggleFullscreen,
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white),
-                    tooltip: 'Close',
+                    tooltip: '关闭',
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],

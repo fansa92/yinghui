@@ -15,7 +15,12 @@ import 'player_service.dart';
 /// the style settings only change the full-screen page, which is
 /// passed [settings] and [musicRepo] for that.
 class MiniPlayer extends StatelessWidget {
-  const MiniPlayer({super.key, required this.player, this.settings, this.musicRepo});
+  const MiniPlayer({
+    super.key,
+    required this.player,
+    this.settings,
+    this.musicRepo,
+  });
 
   final PlayerService player;
 

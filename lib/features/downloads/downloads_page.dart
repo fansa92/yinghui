@@ -220,7 +220,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  _chip('All', null, _sourceFilter == null, () {
+                  _chip('全部', null, _sourceFilter == null, () {
                     setState(() => _sourceFilter = null);
                     _saveFilters();
                   }),
@@ -238,11 +238,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  _statusChip('All', null),
-                  _statusChip('Downloading', DownloadStatus.downloading),
-                  _statusChip('Completed', DownloadStatus.completed),
-                  _statusChip('Paused', DownloadStatus.paused),
-                  _statusChip('Failed', DownloadStatus.failed),
+                  _statusChip('全部', null),
+                  _statusChip('下载中', DownloadStatus.downloading),
+                  _statusChip('已完成', DownloadStatus.completed),
+                  _statusChip('已暂停', DownloadStatus.paused),
+                  _statusChip('失败', DownloadStatus.failed),
                 ],
               ),
             ),
@@ -264,9 +264,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
               child: !widget.repo.hasCredentials
                   ? EmptyView(
                       icon: Icons.download_outlined,
-                      title: 'No downloader account yet',
-                      subtitle: 'Add a qBittorrent, Transmission or aria2 account in Servers to see your real download queue.',
-                      actionLabel: 'Open Servers',
+                      title: '还没有下载器账号',
+                      subtitle: '在“服务器”里添加 qBittorrent、Transmission 或 aria2 账号，这里就会显示你的真实下载队列。',
+                      actionLabel: '去服务器页',
                       onAction: () {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -278,10 +278,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   : tasks.isEmpty
                   ? EmptyView(
                       icon: Icons.download_outlined,
-                      title: 'No downloads',
+                      title: '没有下载任务',
                       subtitle: widget.repo.isLoading
-                          ? 'Loading…'
-                          : 'Tap + to add a magnet link or torrent URL.',
+                          ? '加载中…'
+                          : '点 + 添加磁力链接或种子链接。',
                     )
                   : RefreshIndicator(
                       onRefresh: widget.repo.refresh,
@@ -376,7 +376,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   IconButton(
                     icon: const Icon(Icons.refresh, size: 20),
                     onPressed: () => widget.repo.retryTask(t),
-                    tooltip: 'Retry',
+                    tooltip: '重试',
                   ),
                 IconButton(
                   icon: Icon(
@@ -388,14 +388,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   onPressed: () => t.status == DownloadStatus.paused
                       ? widget.repo.resumeTask(t)
                       : widget.repo.pauseTask(t),
-                  tooltip: t.status == DownloadStatus.paused
-                      ? 'Resume'
-                      : 'Pause',
+                  tooltip: t.status == DownloadStatus.paused ? '继续' : '暂停',
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete, size: 20),
                   onPressed: () => _confirmDelete(t),
-                  tooltip: 'Delete',
+                  tooltip: '删除',
                 ),
               ],
             ),
@@ -411,7 +409,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Delete download?'),
+          title: const Text('删除这个下载任务？'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,7 +419,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               CheckboxListTile(
                 value: deleteFiles,
                 onChanged: (v) => setState(() => deleteFiles = v ?? false),
-                title: const Text('Delete downloaded files too'),
+                title: const Text('同时删除下载的文件'),
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
               ),
@@ -430,11 +428,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: const Text('取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
+              child: const Text('删除'),
             ),
           ],
         ),

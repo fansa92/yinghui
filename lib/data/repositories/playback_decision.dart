@@ -5,7 +5,7 @@ enum VideoQuality { direct, p1080, p720, p480 }
 
 extension VideoQualityLabel on VideoQuality {
   String get label => switch (this) {
-    VideoQuality.direct => 'Direct',
+    VideoQuality.direct => '直接播放',
     VideoQuality.p1080 => '1080p',
     VideoQuality.p720 => '720p',
     VideoQuality.p480 => '480p',

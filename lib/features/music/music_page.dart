@@ -51,10 +51,10 @@ class MusicPage extends StatefulWidget {
 }
 
 class _MusicPageState extends State<MusicPage> {
-  static const _filters = ['Albums', 'Artists', 'Playlists', 'Favorites'];
+  static const _filters = ['专辑', '艺人', '歌单', '收藏'];
   static const _pageSize = 20;
 
-  String _filter = 'Albums';
+  String _filter = '专辑';
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
 
@@ -157,7 +157,7 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   void _onScroll() {
-    if (_filter != 'Albums' || _searchResult != null) return;
+    if (_filter != '专辑' || _searchResult != null) return;
     if (!_scrollController.hasClients || _loadingMore || !_hasMore) return;
     final max = _scrollController.position.maxScrollExtent;
     if (_scrollController.position.pixels >= max - 400) {
@@ -269,7 +269,7 @@ class _MusicPageState extends State<MusicPage> {
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Search songs, albums, artists',
+              hintText: '搜索歌曲、专辑、艺人',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _searchController.text.isEmpty
                   ? null
@@ -319,10 +319,7 @@ class _MusicPageState extends State<MusicPage> {
           child: _loading && _albums.isEmpty && _searchResult == null
               ? const LoadingView()
               : _error != null
-              ? ErrorView(
-                  message: 'Could not load music:\n$_error',
-                  onRetry: _loadInitial,
-                )
+              ? ErrorView(message: '音乐加载失败：\n$_error', onRetry: _loadInitial)
               : _searchResult != null
               ? _searchResults()
               : _filterBody(),
@@ -334,9 +331,9 @@ class _MusicPageState extends State<MusicPage> {
   Widget _emptyState() {
     return EmptyView(
       icon: Icons.music_off_outlined,
-      title: 'No Navidrome account yet',
-      subtitle: 'Add your Navidrome server in Servers to see your music here.',
-      actionLabel: 'Open Servers',
+      title: '还没有 Navidrome 账号',
+      subtitle: '在“服务器”里添加 Navidrome 服务器，这里就会显示你的音乐。',
+      actionLabel: '去服务器页',
       onAction: _openServers,
     );
   }
@@ -346,13 +343,13 @@ class _MusicPageState extends State<MusicPage> {
     if (result.songs.isEmpty &&
         result.albums.isEmpty &&
         result.artists.isEmpty) {
-      return const Center(child: Text('No results.'));
+      return const Center(child: Text('没有找到结果。'));
     }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
         if (result.songs.isNotEmpty) ...[
-          const _SectionTitle('Songs'),
+          const _SectionTitle('歌曲'),
           ...result.songs.map(
             (t) => ListTile(
               leading: CoverImage(coverUrl: t.coverUrl),
@@ -367,7 +364,7 @@ class _MusicPageState extends State<MusicPage> {
           ),
         ],
         if (result.albums.isNotEmpty) ...[
-          const _SectionTitle('Albums'),
+          const _SectionTitle('专辑'),
           ...result.albums.map(
             (a) => ListTile(
               leading: CoverImage(coverUrl: a.coverUrl),
@@ -387,12 +384,12 @@ class _MusicPageState extends State<MusicPage> {
           ),
         ],
         if (result.artists.isNotEmpty) ...[
-          const _SectionTitle('Artists'),
+          const _SectionTitle('艺人'),
           ...result.artists.map(
             (a) => ListTile(
               leading: const CircleAvatar(child: Icon(Icons.person)),
               title: Text(a.name),
-              subtitle: Text('${a.albumCount} albums'),
+              subtitle: Text('${a.albumCount} 张专辑'),
             ),
           ),
         ],
@@ -403,9 +400,9 @@ class _MusicPageState extends State<MusicPage> {
 
   Widget _filterBody() {
     switch (_filter) {
-      case 'Artists':
+      case '艺人':
         if (_artists.isEmpty) {
-          return const Center(child: Text('No artists yet.'));
+          return const Center(child: Text('还没有艺人。'));
         }
         return ListView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -415,13 +412,13 @@ class _MusicPageState extends State<MusicPage> {
             return ListTile(
               leading: const CircleAvatar(child: Icon(Icons.person)),
               title: Text(a.name),
-              subtitle: Text('${a.albumCount} albums · ${a.sourceLabel}'),
+              subtitle: Text('${a.albumCount} 张专辑 · ${a.sourceLabel}'),
             );
           },
         );
-      case 'Playlists':
+      case '歌单':
         if (_playlists.isEmpty) {
-          return const Center(child: Text('No playlists yet.'));
+          return const Center(child: Text('还没有歌单。'));
         }
         return ListView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -442,7 +439,7 @@ class _MusicPageState extends State<MusicPage> {
                 ),
               ),
               title: Text(p.name),
-              subtitle: Text('${p.songCount} songs · ${p.sourceLabel}'),
+              subtitle: Text('${p.songCount} 首歌 · ${p.sourceLabel}'),
               onTap: () async {
                 final tracks = await widget.repo.playlistTracks(
                   p.id,
@@ -463,15 +460,15 @@ class _MusicPageState extends State<MusicPage> {
             );
           },
         );
-      case 'Favorites':
+      case '收藏':
         if (_starredSongs.isEmpty && _starredAlbums.isEmpty) {
-          return const Center(child: Text('No favourites yet.'));
+          return const Center(child: Text('还没有收藏。'));
         }
         return ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           children: [
             if (_starredAlbums.isNotEmpty) ...[
-              const _SectionTitle('Starred albums'),
+              const _SectionTitle('收藏的专辑'),
               ..._starredAlbums.map(
                 (a) => ListTile(
                   leading: CoverImage(coverUrl: a.coverUrl),
@@ -491,7 +488,7 @@ class _MusicPageState extends State<MusicPage> {
               ),
             ],
             if (_starredSongs.isNotEmpty) ...[
-              const _SectionTitle('Starred songs'),
+              const _SectionTitle('收藏的歌曲'),
               ..._starredSongs.map(
                 (t) => ListTile(
                   leading: CoverImage(coverUrl: t.coverUrl),
@@ -508,7 +505,7 @@ class _MusicPageState extends State<MusicPage> {
             const SizedBox(height: 16),
           ],
         );
-      case 'Albums':
+      case '专辑':
       default:
         if (_albums.isEmpty) {
           return RefreshIndicator(
@@ -516,7 +513,7 @@ class _MusicPageState extends State<MusicPage> {
             child: ListView(
               children: const [
                 SizedBox(height: 120),
-                Center(child: Text('No albums yet.')),
+                Center(child: Text('还没有专辑。')),
               ],
             ),
           );

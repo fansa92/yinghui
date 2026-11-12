@@ -75,9 +75,8 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
       setState(() => _starred[_starKey(track.serverId, track.id)] = starred);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not change favourite.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('收藏失败，请重试。')));
     }
   }
 
@@ -88,9 +87,8 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
       setState(() => _albumStarred = starred);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not change favourite.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('收藏失败，请重试。')));
     }
   }
 
@@ -119,7 +117,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        'Could not load this album:\n${snapshot.error}',
+                        '专辑加载失败：\n${snapshot.error}',
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -160,7 +158,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
                                   ),
                                 ),
                                 Text(
-                                  '${album.year ?? ''} · ${album.trackCount} tracks',
+                                  '${album.year ?? ''} · ${album.trackCount} 首歌',
                                   style: const TextStyle(
                                     color: YingHuiTheme.textMuted,
                                     fontSize: 13,
@@ -186,7 +184,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
                                 ? null
                                 : () => widget.player.playQueue(tracks),
                             icon: const Icon(Icons.play_arrow),
-                            label: const Text('Play All'),
+                            label: const Text('全部播放'),
                           ),
                           const SizedBox(width: 12),
                           OutlinedButton.icon(
@@ -197,7 +195,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
                                   : Icons.favorite_border,
                               color: YingHuiTheme.primaryGreen,
                             ),
-                            label: Text(_albumStarred ? 'Starred' : 'Star'),
+                            label: Text(_albumStarred ? '已收藏' : '收藏'),
                           ),
                         ],
                       ),

@@ -292,20 +292,20 @@ void main() {
       expect(find.text('Exclusion Song'), findsNothing);
 
       // Music tab: mini-player appears.
-      await tester.tap(navLabel('Music'));
+      await tester.tap(navLabel('音乐'));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(MiniPlayer), findsOneWidget);
       expect(find.text('Exclusion Song'), findsOneWidget);
 
       // Video tab: gone again.
-      await tester.tap(navLabel('Video'));
+      await tester.tap(navLabel('视频'));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(MiniPlayer), findsNothing);
 
       // Downloads tab: still gone.
-      await tester.tap(navLabel('Downloads'));
+      await tester.tap(navLabel('下载'));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byType(MiniPlayer), findsNothing);

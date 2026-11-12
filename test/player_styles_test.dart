@@ -118,7 +118,7 @@ void main() {
       expect(find.text('Netflix'), findsOneWidget);
       expect(find.text('Apple TV'), findsOneWidget);
       expect(find.text('封面取色背景 + 白色播放键 + 音量条'), findsOneWidget);
-      expect(find.text('±10 秒快进快退 + 播完 Up Next'), findsOneWidget);
+      expect(find.text('±10 秒快进快退 + 播完自动播放下一集'), findsOneWidget);
     });
   });
 
@@ -294,16 +294,16 @@ void main() {
       );
       // Heart starts unstarred; tapping it stars the track.
       expect(find.byIcon(Icons.favorite_border), findsOneWidget);
-      expect(find.text('Queue'), findsOneWidget);
-      await tester.tap(find.byTooltip('Like'));
+      expect(find.text('播放队列'), findsOneWidget);
+      await tester.tap(find.byTooltip('收藏'));
       await tester.pump();
       expect(repo.starredState, isTrue);
       expect(find.byIcon(Icons.favorite), findsOneWidget);
 
       // Queue button scrolls to the Up next list without crashing.
-      await tester.tap(find.text('Queue'));
+      await tester.tap(find.text('播放队列'));
       await tester.pump();
-      expect(find.text('Up next'), findsOneWidget);
+      expect(find.text('接下来播放'), findsOneWidget);
     });
 
     testWidgets('changing the style in Settings restyles the page live', (
@@ -415,9 +415,9 @@ void main() {
 
       final slider = tester.widget<Slider>(find.byType(Slider));
       expect(slider.activeColor, YingHuiTheme.primaryGreen);
-      expect(find.byTooltip('Next Episode'), findsNothing);
-      expect(find.byTooltip('Back 10 seconds'), findsNothing);
-      expect(find.byTooltip('Forward 10 seconds'), findsNothing);
+      expect(find.byTooltip('下一集'), findsNothing);
+      expect(find.byTooltip('快退 10 秒'), findsNothing);
+      expect(find.byTooltip('快进 10 秒'), findsNothing);
     });
 
     testWidgets('netflix: red progress and a working Next Episode button', (
@@ -435,8 +435,8 @@ void main() {
 
       final slider = tester.widget<Slider>(find.byType(Slider));
       expect(slider.activeColor, const Color(0xFFE50914));
-      expect(find.byTooltip('Next Episode'), findsOneWidget);
-      await tester.tap(find.byTooltip('Next Episode'));
+      expect(find.byTooltip('下一集'), findsOneWidget);
+      await tester.tap(find.byTooltip('下一集'));
       await tester.pump();
       expect(played?.id, 'e2');
     });
@@ -450,7 +450,7 @@ void main() {
         style: VideoPlayerStyle.netflix,
         backend: backend,
       );
-      expect(find.byTooltip('Next Episode'), findsNothing);
+      expect(find.byTooltip('下一集'), findsNothing);
     });
 
     testWidgets('appleTv: ±10s buttons seek the service', (tester) async {
@@ -462,13 +462,13 @@ void main() {
         backend: backend,
       );
 
-      await tester.tap(find.byTooltip('Forward 10 seconds'));
+      await tester.tap(find.byTooltip('快进 10 秒'));
       await tester.pump();
       expect(backend.lastSeek, const Duration(seconds: 10));
-      await tester.tap(find.byTooltip('Forward 10 seconds'));
+      await tester.tap(find.byTooltip('快进 10 秒'));
       await tester.pump();
       expect(backend.lastSeek, const Duration(seconds: 20));
-      await tester.tap(find.byTooltip('Back 10 seconds'));
+      await tester.tap(find.byTooltip('快退 10 秒'));
       await tester.pump();
       expect(backend.lastSeek, const Duration(seconds: 10));
     });
@@ -490,17 +490,17 @@ void main() {
       await tester.pump();
       // The broadcast completion event is delivered on the next pump.
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Up Next'), findsOneWidget);
+      expect(find.text('接下来播放'), findsOneWidget);
       expect(find.text('Episode 2'), findsOneWidget);
-      expect(find.text('Playing in 10 s'), findsOneWidget);
+      expect(find.text('10 秒后播放'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Playing in 9 s'), findsOneWidget);
+      expect(find.text('9 秒后播放'), findsOneWidget);
 
       // Dismiss cancels the autoplay.
-      await tester.tap(find.text('Dismiss'));
+      await tester.tap(find.text('关闭'));
       await tester.pump();
-      expect(find.text('Up Next'), findsNothing);
+      expect(find.text('接下来播放'), findsNothing);
       await tester.pump(const Duration(seconds: 10));
       expect(played, isNull);
     });
@@ -521,7 +521,7 @@ void main() {
       backend.emitCompleted();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.text('Play now'));
+      await tester.tap(find.text('立即播放'));
       await tester.pump();
       expect(played?.id, 'e2');
     });
@@ -542,7 +542,7 @@ void main() {
       backend.emitCompleted();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Playing in 10 s'), findsOneWidget);
+      expect(find.text('10 秒后播放'), findsOneWidget);
       await tester.pump(const Duration(seconds: 10));
       expect(played?.id, 'e2');
     });

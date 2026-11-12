@@ -90,7 +90,7 @@ void main() {
       // the right column for every style on desktop.
       expect(find.byType(Slider), findsNWidgets(2));
       expect(find.text('100%'), findsOneWidget);
-      expect(find.text('Up next'), findsOneWidget);
+      expect(find.text('接下来播放'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
           (w) =>
@@ -154,7 +154,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.byIcon(Icons.favorite_border), findsOneWidget);
-      expect(find.text('Queue'), findsOneWidget);
+      expect(find.text('播放队列'), findsOneWidget);
     });
 
     testWidgets('desktop: style change restyles the two-column page live', (
@@ -304,7 +304,7 @@ void main() {
     ) async {
       VideoPlayerPage.resetShortcutsHintForTest();
       await pumpPlayer(tester, width: 390, height: 844);
-      expect(find.text('Keyboard shortcuts'), findsNothing);
+      expect(find.text('键盘快捷键'), findsNothing);
     });
 
     testWidgets('Space toggles play/pause', (tester) async {
@@ -374,17 +374,17 @@ void main() {
     ) async {
       VideoPlayerPage.resetShortcutsHintForTest();
       await pumpPlayer(tester, width: 1440, height: 900);
-      expect(find.text('Keyboard shortcuts'), findsOneWidget);
-      expect(find.text('Space · play / pause'), findsOneWidget);
-      expect(find.text('← → · seek 10 s'), findsOneWidget);
+      expect(find.text('键盘快捷键'), findsOneWidget);
+      expect(find.text('空格 · 播放 / 暂停'), findsOneWidget);
+      expect(find.text('← → · 快进 / 快退 10 秒'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Dismiss'));
+      await tester.tap(find.byTooltip('知道了'));
       await tester.pump();
-      expect(find.text('Keyboard shortcuts'), findsNothing);
+      expect(find.text('键盘快捷键'), findsNothing);
 
       // A second player in the same session does not show it again.
       await pumpPlayer(tester, width: 1440, height: 900);
-      expect(find.text('Keyboard shortcuts'), findsNothing);
+      expect(find.text('键盘快捷键'), findsNothing);
     });
   });
 }

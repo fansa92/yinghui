@@ -64,11 +64,11 @@ class _ServersPageState extends State<ServersPage> {
   }
 
   String _statusLabel(ConnectionResult? result) {
-    if (result == null) return 'Not tested';
+    if (result == null) return '未测试';
     return switch (result.status) {
-      ConnectionStatus.ok => 'Online',
-      ConnectionStatus.needsAuth => 'Needs login',
-      ConnectionStatus.unreachable => 'Unreachable',
+      ConnectionStatus.ok => '在线',
+      ConnectionStatus.needsAuth => '需要登录',
+      ConnectionStatus.unreachable => '无法连接',
     };
   }
 
@@ -76,11 +76,11 @@ class _ServersPageState extends State<ServersPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Servers'),
+        title: const Text('服务器'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'Add server',
+            tooltip: '添加服务器',
             onPressed: () => _pickTypeAndAdd(context),
           ),
         ],
@@ -93,8 +93,8 @@ class _ServersPageState extends State<ServersPage> {
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'No servers yet.\nTap + to add your Navidrome, Emby, '
-                  'qBittorrent, Transmission or aria2 server.',
+                  '还没有服务器。\n点 + 添加你的 Navidrome、Emby、'
+                  'qBittorrent、Transmission 或 aria2 服务器。',
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -134,18 +134,16 @@ class _ServersPageState extends State<ServersPage> {
                   final ok = await showDialog<bool>(
                     context: context,
                     builder: (context) => AlertDialog(
-                      title: Text('Delete ${server.name}?'),
-                      content: const Text(
-                        'The server and its stored secret will be removed.',
-                      ),
+                      title: Text('删除 ${server.name}？'),
+                      content: const Text('服务器和它保存的密码也会一起删除。'),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(false),
-                          child: const Text('Cancel'),
+                          child: const Text('取消'),
                         ),
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(true),
-                          child: const Text('Delete'),
+                          child: const Text('删除'),
                         ),
                       ],
                     ),
@@ -176,11 +174,10 @@ class _ServersPageState extends State<ServersPage> {
                         else
                           IconButton(
                             icon: const Icon(Icons.refresh),
-                            tooltip: 'Test connection',
+                            tooltip: '测试连接',
                             onPressed: () => _test(server),
                           ),
-                        if (server.isDefault)
-                          const Chip(label: Text('Default')),
+                        if (server.isDefault) const Chip(label: Text('默认')),
                       ],
                     ),
                     onTap: () => store.setDefault(server.id),
@@ -199,7 +196,7 @@ class _ServersPageState extends State<ServersPage> {
     final type = await showDialog<ServerType>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Server type'),
+        title: const Text('服务器类型'),
         children: ServerType.values
             .map(
               (t) => SimpleDialogOption(
@@ -267,9 +264,7 @@ class _ServersPageState extends State<ServersPage> {
 
           return AlertDialog(
             title: Text(
-              server == null
-                  ? 'Add ${effectiveType.label}'
-                  : 'Edit ${server.name}',
+              server == null ? '添加${effectiveType.label}' : '编辑 ${server.name}',
             ),
             content: SingleChildScrollView(
               child: Column(
@@ -277,28 +272,28 @@ class _ServersPageState extends State<ServersPage> {
                 children: [
                   TextField(
                     controller: nameController,
-                    decoration: const InputDecoration(labelText: 'Name'),
+                    decoration: const InputDecoration(labelText: '名称'),
                   ),
                   TextField(
                     controller: hostController,
                     decoration: const InputDecoration(
-                      labelText: 'Host (IP, hostname or full URL)',
+                      labelText: '地址（IP、域名或完整链接）',
                     ),
                   ),
                   TextField(
                     controller: portController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Port'),
+                    decoration: const InputDecoration(labelText: '端口'),
                   ),
                   TextField(
                     controller: userController,
-                    decoration: const InputDecoration(labelText: 'Username'),
+                    decoration: const InputDecoration(labelText: '用户名'),
                   ),
                   TextField(
                     controller: secretController,
                     obscureText: true,
                     decoration: const InputDecoration(
-                      labelText: 'Password / token / secret',
+                      labelText: '密码 / Token / 密钥',
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -323,11 +318,11 @@ class _ServersPageState extends State<ServersPage> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Test Connection'),
+                    : const Text('测试连接'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
+                child: const Text('取消'),
               ),
               FilledButton(
                 onPressed: () async {
@@ -354,7 +349,7 @@ class _ServersPageState extends State<ServersPage> {
                     Navigator.of(dialogContext).pop();
                   }
                 },
-                child: const Text('Save'),
+                child: const Text('保存'),
               ),
             ],
           );

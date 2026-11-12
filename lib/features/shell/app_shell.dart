@@ -57,7 +57,7 @@ class _AppShellState extends State<AppShell> {
   /// load must not yank the tab back to the saved one.
   bool _userNavigated = false;
 
-  static const _titles = ['影汇', 'Music', 'Video', 'Downloads'];
+  static const _titles = ['影汇', '音乐', '视频', '下载'];
 
   @override
   void initState() {
@@ -157,12 +157,12 @@ class _AppShellState extends State<AppShell> {
           if (_index == 3)
             IconButton(
               icon: const Icon(Icons.add),
-              tooltip: 'Add download',
+              tooltip: '添加下载',
               onPressed: () => _showAddDownload(context),
             ),
           IconButton(
             icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
+            tooltip: '设置',
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -189,22 +189,22 @@ class _AppShellState extends State<AppShell> {
                     NavigationRailDestination(
                       icon: Icon(Icons.home_outlined),
                       selectedIcon: Icon(Icons.home),
-                      label: Text('Home'),
+                      label: Text('首页'),
                     ),
                     NavigationRailDestination(
                       icon: Icon(Icons.music_note_outlined),
                       selectedIcon: Icon(Icons.music_note),
-                      label: Text('Music'),
+                      label: Text('音乐'),
                     ),
                     NavigationRailDestination(
                       icon: Icon(Icons.movie_outlined),
                       selectedIcon: Icon(Icons.movie),
-                      label: Text('Video'),
+                      label: Text('视频'),
                     ),
                     NavigationRailDestination(
                       icon: Icon(Icons.download_outlined),
                       selectedIcon: Icon(Icons.download),
-                      label: Text('Downloads'),
+                      label: Text('下载'),
                     ),
                   ],
                 ),
@@ -222,22 +222,22 @@ class _AppShellState extends State<AppShell> {
                 NavigationDestination(
                   icon: Icon(Icons.home_outlined),
                   selectedIcon: Icon(Icons.home),
-                  label: 'Home',
+                  label: '首页',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.music_note_outlined),
                   selectedIcon: Icon(Icons.music_note),
-                  label: 'Music',
+                  label: '音乐',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.movie_outlined),
                   selectedIcon: Icon(Icons.movie),
-                  label: 'Video',
+                  label: '视频',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.download_outlined),
                   selectedIcon: Icon(Icons.download),
-                  label: 'Downloads',
+                  label: '下载',
                 ),
               ],
             ),
@@ -251,11 +251,8 @@ class _AppShellState extends State<AppShell> {
   Future<void> _showAddDownload(BuildContext context) async {
     final usable = widget.downloadRepo.usableDownloaders;
     if (usable.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No downloader account yet — add one in Servers.'),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('还没有下载器账号——去“服务器”里添加。')));
       return;
     }
     final urlController = TextEditingController();
@@ -276,15 +273,15 @@ class _AppShellState extends State<AppShell> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Add download'),
+          title: const Text('添加下载'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: urlController,
                 decoration: const InputDecoration(
-                  labelText: 'Magnet link, torrent URL or torrent hash',
-                  hintText: 'magnet:?xt=… / https://… / 40 or 64 hex chars',
+                  labelText: '磁力链接、种子链接或种子哈希',
+                  hintText: 'magnet:?xt=… / https://… / 40 或 64 位十六进制',
                 ),
               ),
               const SizedBox(height: 12),
@@ -306,16 +303,14 @@ class _AppShellState extends State<AppShell> {
               const SizedBox(height: 12),
               TextField(
                 controller: savePathController,
-                decoration: const InputDecoration(
-                  labelText: 'Save path (optional)',
-                ),
+                decoration: const InputDecoration(labelText: '保存路径（可选）'),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: const Text('取消'),
             ),
             FilledButton(
               onPressed: () async {
@@ -334,18 +329,15 @@ class _AppShellState extends State<AppShell> {
                 );
                 if (context.mounted) Navigator.of(context).pop(ok);
               },
-              child: const Text('Add'),
+              child: const Text('添加'),
             ),
           ],
         ),
       ),
     );
     if (added == false && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add download failed — check the server.'),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('添加下载失败——请检查服务器。')));
     }
   }
 }

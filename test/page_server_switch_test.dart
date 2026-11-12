@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yinghui/core/app_state.dart';
 import 'package:yinghui/core/models/server.dart';
 import 'package:yinghui/core/settings.dart';
+import 'package:yinghui/core/widgets/server_selector.dart';
 import 'package:yinghui/data/api/aria2_client.dart';
 import 'package:yinghui/data/api/emby_client.dart';
 import 'package:yinghui/data/api/qbittorrent_client.dart';
@@ -927,7 +928,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('管理服务器'));
       await tester.pumpAndSettle();
-      expect(find.text('Servers'), findsOneWidget);
+      expect(find.text('服务器'), findsOneWidget);
     });
 
     testWidgets('selection for a deleted server falls back to 全部', (
@@ -1139,12 +1140,18 @@ void main() {
       await tester.pumpAndSettle();
 
       // Default is 全部: both tasks visible, no filter on the repo.
-      expect(find.text('全部'), findsOneWidget);
+      // The page shows 全部 three times (server selector + source and
+      // status filters), so scope the selector's value explicitly.
+      final selectorAll = find.descendant(
+        of: find.byType(ServerSelector),
+        matching: find.text('全部'),
+      );
+      expect(selectorAll, findsOneWidget);
       expect(repo.serverFilter, isNull);
       expect(find.text('QB Task'), findsOneWidget);
       expect(find.text('TR Task'), findsOneWidget);
 
-      await tester.tap(find.text('全部'));
+      await tester.tap(selectorAll);
       await tester.pumpAndSettle();
       // Downloaders show their type next to the name.
       expect(find.text('qB · qBittorrent'), findsOneWidget);

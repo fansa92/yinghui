@@ -176,7 +176,7 @@ void main() {
       expect(tasks[0].etaSeconds, 480);
       expect(tasks[0].savePath, '/data/downloads');
       expect(tasks[0].hash, 'abc123');
-      expect(tasks[0].remainingText, '8m left');
+      expect(tasks[0].remainingText, '剩余 8分钟');
       expect(tasks[1].status, DownloadStatus.paused);
       expect(tasks[2].status, DownloadStatus.completed);
       expect(tasks[3].status, DownloadStatus.failed);
@@ -258,7 +258,7 @@ void main() {
       expect(tasks[0].etaSeconds, 900);
       expect(tasks[0].savePath, '/data/torrents');
       expect(tasks[0].hash, 'deadbeef');
-      expect(tasks[0].remainingText, '15m left');
+      expect(tasks[0].remainingText, '剩余 15分钟');
       expect(tasks[1].status, DownloadStatus.paused);
       expect(tasks[2].status, DownloadStatus.completed);
     });
@@ -778,9 +778,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       repo.stopPolling();
-      expect(find.text('No downloader account yet'), findsOneWidget);
-      expect(find.text('Open Servers'), findsOneWidget);
-      expect(find.text('No downloads'), findsNothing);
+      expect(find.text('还没有下载器账号'), findsOneWidget);
+      expect(find.text('去服务器页'), findsOneWidget);
+      expect(find.text('没有下载任务'), findsNothing);
     });
   });
 }

@@ -13,11 +13,11 @@ enum DownloadStatus { queued, downloading, paused, completed, failed }
 
 extension DownloadStatusLabel on DownloadStatus {
   String get label => switch (this) {
-    DownloadStatus.queued => 'Queued',
-    DownloadStatus.downloading => 'Downloading',
-    DownloadStatus.paused => 'Paused',
-    DownloadStatus.completed => 'Completed',
-    DownloadStatus.failed => 'Failed',
+    DownloadStatus.queued => '排队中',
+    DownloadStatus.downloading => '下载中',
+    DownloadStatus.paused => '已暂停',
+    DownloadStatus.completed => '已完成',
+    DownloadStatus.failed => '失败',
   };
 }
 
@@ -152,14 +152,14 @@ class DownloadTask {
   String get remainingText {
     if (etaSeconds >= 0) {
       final seconds = etaSeconds;
-      if (seconds < 60) return '${seconds}s left';
-      if (seconds < 3600) return '${seconds ~/ 60}m left';
-      return '${seconds ~/ 3600}h ${seconds % 3600 ~/ 60}m left';
+      if (seconds < 60) return '剩余 $seconds秒';
+      if (seconds < 3600) return '剩余 ${seconds ~/ 60}分钟';
+      return '剩余 ${seconds ~/ 3600}小时${seconds % 3600 ~/ 60}分钟';
     }
     if (speedBytesPerSec <= 0 || sizeBytes <= downloadedBytes) return '';
     final seconds = (sizeBytes - downloadedBytes) ~/ speedBytesPerSec;
-    if (seconds < 60) return '${seconds}s left';
-    if (seconds < 3600) return '${seconds ~/ 60}m left';
-    return '${seconds ~/ 3600}h ${seconds % 3600 ~/ 60}m left';
+    if (seconds < 60) return '剩余 $seconds秒';
+    if (seconds < 3600) return '剩余 ${seconds ~/ 60}分钟';
+    return '剩余 ${seconds ~/ 3600}小时${seconds % 3600 ~/ 60}分钟';
   }
 }

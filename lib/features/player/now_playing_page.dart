@@ -98,14 +98,14 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ? Colors.black
               : null,
           appBar: AppBar(
-            title: const Text('Now Playing'),
+            title: const Text('正在播放'),
             backgroundColor: _style == MusicPlayerStyle.spotify
                 ? Colors.black
                 : null,
             actions: [
               IconButton(
                 icon: const Icon(Icons.keyboard_arrow_down),
-                tooltip: 'Close',
+                tooltip: '关闭',
                 onPressed: () => Navigator.of(context).pop(),
               ),
             ],
@@ -119,7 +119,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   Widget _bodyOrEmpty() {
     final track = widget.player.currentTrack;
     if (track == null) {
-      return const Center(child: Text('Nothing is playing yet.'));
+      return const Center(child: Text('还没有在播的歌曲。'));
     }
     final content = isWideLayout(context) ? _desktopBody(track) : _body(track);
     if (_style == MusicPlayerStyle.appleMusic &&
@@ -336,7 +336,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           const SizedBox(width: 48),
         TextButton.icon(
           icon: const Icon(Icons.queue_music, color: Colors.white70),
-          label: const Text('Queue', style: TextStyle(color: Colors.white70)),
+          label: const Text('播放队列', style: TextStyle(color: Colors.white70)),
           onPressed: () {
             final context = _upNextKey.currentContext;
             if (context != null) {
@@ -360,7 +360,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Up next',
+          '接下来播放',
           key: _upNextKey,
           style: TextStyle(
             fontSize: 17,
@@ -533,7 +533,7 @@ class _StarButtonState extends State<_StarButton> {
             starred ? Icons.favorite : Icons.favorite_border,
             color: starred ? Colors.white : Colors.white70,
           ),
-          tooltip: starred ? 'Unlike' : 'Like',
+          tooltip: starred ? '取消收藏' : '收藏',
           onPressed: _toggle,
         );
       },

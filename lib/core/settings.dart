@@ -34,8 +34,8 @@ enum VideoQualityPreference { auto, direct, p1080, p720, p480 }
 
 extension VideoQualityPreferenceLabel on VideoQualityPreference {
   String get label => switch (this) {
-    VideoQualityPreference.auto => 'Auto',
-    VideoQualityPreference.direct => 'Direct',
+    VideoQualityPreference.auto => '自动',
+    VideoQualityPreference.direct => '直接播放',
     VideoQualityPreference.p1080 => '1080p',
     VideoQualityPreference.p720 => '720p',
     VideoQualityPreference.p480 => '480p',

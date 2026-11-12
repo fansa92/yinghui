@@ -159,10 +159,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       body: _loading
           ? const LoadingView()
           : _error != null
-          ? ErrorView(
-              message: 'Could not load details:\n$_error',
-              onRetry: _load,
-            )
+          ? ErrorView(message: '详情加载失败：\n$_error', onRetry: _load)
           : CenteredContent(child: _detailView()),
     );
   }
@@ -176,12 +173,12 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     final meta = [
       if (item.year != null) '${item.year}',
       item.durationText,
-      item.type,
+      item.typeLabel,
       item.sourceLabel,
     ].join(' · ');
     final playLabel = item.playbackPositionSeconds > 0
-        ? 'Resume from ${item.positionText}'
-        : 'Play';
+        ? '从 ${item.positionText} 继续播放'
+        : '播放';
     final belowHeader = <Widget>[
       if (item.overview.isNotEmpty) ...[
         const SizedBox(height: 16),
@@ -190,7 +187,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       if (item.cast.isNotEmpty) ...[
         const SizedBox(height: 16),
         const Text(
-          'Cast',
+          '演员',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
@@ -212,7 +209,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         Row(
           children: [
             const Text(
-              'Episodes',
+              '分集',
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
             const Spacer(),
@@ -231,7 +228,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         const SizedBox(height: 8),
         if (episodes.isEmpty)
           const Text(
-            'No episodes in this season yet.',
+            '这一季还没有分集。',
             style: TextStyle(color: YingHuiTheme.textMuted),
           ),
         ...episodes.map((episode) {

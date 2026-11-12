@@ -588,7 +588,7 @@ void main() {
       expect(find.textContaining('48.0 kHz'), findsOneWidget);
       expect(find.text('Chinese'), findsOneWidget);
       expect(find.textContaining('内嵌'), findsOneWidget);
-      expect(find.text('Resume from 10:00'), findsOneWidget);
+      expect(find.text('从 10:00 继续播放'), findsOneWidget);
     });
 
     testWidgets('no media sources shows an explicit empty state', (
@@ -685,7 +685,7 @@ void main() {
       await tester.tap(find.text('复制').at(1));
       await tester.pump();
       await tester.pump();
-      expect(find.text('Hash 已复制'), findsOneWidget);
+      expect(find.text('哈希 已复制'), findsOneWidget);
       expect(repo.paused, isEmpty);
       await tester.tap(find.text('暂停'));
       await tester.pump();

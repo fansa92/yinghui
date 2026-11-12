@@ -654,8 +654,8 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('No Emby account yet'), findsOneWidget);
-      expect(find.text('Open Servers'), findsOneWidget);
+      expect(find.text('还没有 Emby 账号'), findsOneWidget);
+      expect(find.text('去服务器页'), findsOneWidget);
       expect(find.text('The Last Horizon'), findsNothing);
     });
   });
@@ -687,7 +687,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
-      expect(find.textContaining('Could not play'), findsOneWidget);
+      expect(find.textContaining('无法播放'), findsOneWidget);
     });
   });
 }

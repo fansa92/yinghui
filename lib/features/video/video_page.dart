@@ -48,10 +48,10 @@ class VideoPage extends StatefulWidget {
 }
 
 class _VideoPageState extends State<VideoPage> {
-  static const _filters = ['Movies', 'Series'];
+  static const _filters = ['电影', '剧集'];
   static const _pageSize = 20;
 
-  String _filter = 'Movies';
+  String _filter = '电影';
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
 
@@ -186,7 +186,7 @@ class _VideoPageState extends State<VideoPage> {
         _recentlyAdded = recent;
         _movies = movies;
         _series = series;
-        _hasMore = (_filter == 'Movies' ? movies : series).length >= _pageSize;
+        _hasMore = (_filter == '电影' ? movies : series).length >= _pageSize;
         _loading = false;
       });
     } catch (e) {
@@ -201,7 +201,7 @@ class _VideoPageState extends State<VideoPage> {
   Future<void> _loadMore() async {
     setState(() => _loadingMore = true);
     try {
-      final more = _filter == 'Movies'
+      final more = _filter == '电影'
           ? await widget.repo.movies(
               limit: _pageSize,
               offset: _movies.length,
@@ -214,7 +214,7 @@ class _VideoPageState extends State<VideoPage> {
             );
       if (!mounted) return;
       setState(() {
-        if (_filter == 'Movies') {
+        if (_filter == '电影') {
           _movies = [..._movies, ...more];
         } else {
           _series = [..._series, ...more];
@@ -279,10 +279,7 @@ class _VideoPageState extends State<VideoPage> {
       return const LoadingView();
     }
     if (_error != null) {
-      return ErrorView(
-        message: 'Could not load video:\n$_error',
-        onRetry: _loadInitial,
-      );
+      return ErrorView(message: '视频加载失败：\n$_error', onRetry: _loadInitial);
     }
     final hero = _continueWatching.isNotEmpty
         ? _continueWatching.first
@@ -308,7 +305,7 @@ class _VideoPageState extends State<VideoPage> {
               child: TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Search movies and shows',
+                  hintText: '搜索电影和剧集',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _searchController.text.isEmpty
                       ? null
@@ -343,7 +340,7 @@ class _VideoPageState extends State<VideoPage> {
               if (_searchResult!.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(child: Text('No results.')),
+                  child: Center(child: Text('没有找到结果。')),
                 ),
               ..._searchResult!.map(_searchTile),
             ] else ...[
@@ -351,7 +348,7 @@ class _VideoPageState extends State<VideoPage> {
               const SizedBox(height: 16),
               if (_continueWatching.isNotEmpty) ...[
                 const Text(
-                  'Continue Watching',
+                  '继续观看',
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -393,7 +390,7 @@ class _VideoPageState extends State<VideoPage> {
                                 style: const TextStyle(fontSize: 13),
                               ),
                               Text(
-                                '${(v.progress * 100).toStringAsFixed(0)}% watched',
+                                '已看 ${(v.progress * 100).toStringAsFixed(0)}%',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -411,7 +408,7 @@ class _VideoPageState extends State<VideoPage> {
                 const SizedBox(height: 16),
               ],
               const Text(
-                'Recently Added',
+                '最近添加',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
@@ -425,7 +422,7 @@ class _VideoPageState extends State<VideoPage> {
                   ),
                   title: Text(v.title),
                   subtitle: Text(
-                    '${v.year ?? ''} · ${v.type} · ${v.durationText}',
+                    '${v.year ?? ''} · ${v.typeLabel} · ${v.durationText}',
                   ),
                   trailing: Text(
                     v.sourceLabel,
@@ -448,7 +445,7 @@ class _VideoPageState extends State<VideoPage> {
                         onSelected: (_) => setState(() {
                           _filter = f;
                           _hasMore =
-                              (f == 'Movies' ? _movies : _series).length >=
+                              (f == '电影' ? _movies : _series).length >=
                               _pageSize;
                         }),
                       ),
@@ -457,7 +454,7 @@ class _VideoPageState extends State<VideoPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              ...(_filter == 'Movies' ? _movies : _series).map(_gridTile),
+              ...(_filter == '电影' ? _movies : _series).map(_gridTile),
               if (_loadingMore)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
@@ -525,8 +522,8 @@ class _VideoPageState extends State<VideoPage> {
                     icon: const Icon(Icons.play_arrow),
                     label: Text(
                       hero.playbackPositionSeconds > 0
-                          ? 'Resume from ${hero.positionText}'
-                          : 'Play',
+                          ? '从 ${hero.positionText} 继续播放'
+                          : '播放',
                     ),
                   ),
                 ],
@@ -556,7 +553,7 @@ class _VideoPageState extends State<VideoPage> {
         borderRadius: 8,
       ),
       title: Text(v.title),
-      subtitle: Text('${v.year ?? ''} · ${v.type} · ${v.durationText}'),
+      subtitle: Text('${v.year ?? ''} · ${v.typeLabel} · ${v.durationText}'),
       trailing: Text(
         v.sourceLabel,
         style: const TextStyle(color: YingHuiTheme.textMuted),
@@ -570,10 +567,9 @@ class _VideoPageState extends State<VideoPage> {
   Widget _emptyState() {
     return EmptyView(
       icon: Icons.movie_outlined,
-      title: 'No Emby account yet',
-      subtitle:
-          'Add your Emby server in Servers to see your movies and shows here.',
-      actionLabel: 'Open Servers',
+      title: '还没有 Emby 账号',
+      subtitle: '在“服务器”里添加 Emby 服务器，这里就会显示你的电影和剧集。',
+      actionLabel: '去服务器页',
       onAction: _openServers,
     );
   }

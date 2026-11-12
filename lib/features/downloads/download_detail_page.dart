@@ -35,7 +35,7 @@ class DownloadDetailPage extends StatelessWidget {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Delete download?'),
+          title: const Text('删除这个下载任务？'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +45,7 @@ class DownloadDetailPage extends StatelessWidget {
               CheckboxListTile(
                 value: deleteFiles,
                 onChanged: (v) => setState(() => deleteFiles = v ?? false),
-                title: const Text('Delete downloaded files too'),
+                title: const Text('同时删除下载的文件'),
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
               ),
@@ -54,11 +54,11 @@ class DownloadDetailPage extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: const Text('取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
+              child: const Text('删除'),
             ),
           ],
         ),
@@ -186,10 +186,10 @@ class DownloadDetailPage extends StatelessWidget {
                       if (t.hash.isNotEmpty)
                         _copyableRow(
                           context,
-                          label: 'Hash',
+                          label: '哈希',
                           value: t.hash,
                           monospace: true,
-                          onCopy: () => _copy(context, 'Hash', t.hash),
+                          onCopy: () => _copy(context, '哈希', t.hash),
                         ),
                       if (link.isNotEmpty && link != magnet)
                         _copyableRow(

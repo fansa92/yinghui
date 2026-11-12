@@ -162,7 +162,7 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   SearchBar(
-                    hintText: 'Search music, videos, downloads',
+                    hintText: '搜索音乐、视频、下载',
                     leading: const Icon(Icons.search),
                     backgroundColor: WidgetStateProperty.all(
                       Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -171,12 +171,12 @@ class _HomePageState extends State<HomePage> {
                     onTap: widget.onSearchTap,
                   ),
                   const SizedBox(height: 16),
-                  _sectionTitle('Servers'),
+                  _sectionTitle('服务器'),
                   SizedBox(
                     height: 44,
                     child: widget.store.servers.isEmpty
                         ? const _ServerChip(
-                            label: 'No servers yet — add one in Settings',
+                            label: '还没有服务器——去设置里添加',
                             online: false,
                           )
                         : ListView.separated(
@@ -198,14 +198,13 @@ class _HomePageState extends State<HomePage> {
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
                       child: Text(
-                        'No servers yet — add your Navidrome, Emby or '
-                        'downloader accounts in Settings to see your '
-                        'library here.',
+                        '还没有服务器——在设置里添加 Navidrome、Emby 或'
+                        '下载器账号，这里就会显示你的媒体库。',
                         style: TextStyle(color: YingHuiTheme.textMuted),
                       ),
                     ),
                   if (downloading.isNotEmpty) ...[
-                    _sectionTitle('Downloads'),
+                    _sectionTitle('下载'),
                     Card(
                       child: ListTile(
                         leading: const Icon(
@@ -217,7 +216,7 @@ class _HomePageState extends State<HomePage> {
                           '${downloading.first.progressText} · ${_speedText(totalSpeed)}',
                         ),
                         trailing: Text(
-                          '${downloading.length} active',
+                          '${downloading.length} 个进行中',
                           style: const TextStyle(color: YingHuiTheme.textMuted),
                         ),
                       ),
@@ -235,7 +234,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 16),
                   ],
                   if (_continueWatching.isNotEmpty) ...[
-                    _sectionTitle('Continue watching'),
+                    _sectionTitle('继续观看'),
                     SizedBox(
                       height: 200,
                       child: ListView.separated(
@@ -257,7 +256,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 16),
                   ],
                   if (_recentHistory.isNotEmpty) ...[
-                    _sectionTitle('Continue listening'),
+                    _sectionTitle('继续收听'),
                     ..._recentHistory.map(
                       (h) => ListTile(
                         leading: Container(
@@ -277,8 +276,8 @@ class _HomePageState extends State<HomePage> {
                         title: Text(h.title),
                         subtitle: Text(
                           h.positionSeconds > 0
-                              ? 'Resume from ${_positionText(h.positionSeconds)}'
-                              : 'Recently played',
+                              ? '从 ${_positionText(h.positionSeconds)} 继续'
+                              : '最近播放',
                         ),
                         trailing: const Icon(Icons.play_arrow),
                         onTap: () => _playHistory(h),
@@ -287,7 +286,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 16),
                   ],
                   if (_recentAlbums.isNotEmpty || _recentVideos.isNotEmpty) ...[
-                    _sectionTitle('Recently added'),
+                    _sectionTitle('最近添加'),
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -323,7 +322,7 @@ class _HomePageState extends State<HomePage> {
                         final v = _recentVideos[i];
                         return _AlbumCard(
                           title: v.title,
-                          subtitle: '${v.year ?? ''} · ${v.type}'.trim(),
+                          subtitle: '${v.year ?? ''} · ${v.typeLabel}'.trim(),
                           onTap: () => _openVideo(v),
                         );
                       },

@@ -7,8 +7,8 @@ void main() {
     await tester.pumpWidget(const YingHuiApp());
     await tester.pumpAndSettle();
     expect(find.text('影汇'), findsWidgets);
-    expect(find.text('Home'), findsWidgets);
-    expect(find.text('Music'), findsWidgets);
-    expect(find.text('Downloads'), findsWidgets);
+    expect(find.text('首页'), findsWidgets);
+    expect(find.text('音乐'), findsWidgets);
+    expect(find.text('下载'), findsWidgets);
   });
 }

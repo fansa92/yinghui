@@ -500,8 +500,8 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('No Navidrome account yet'), findsOneWidget);
-      expect(find.text('Open Servers'), findsOneWidget);
+      expect(find.text('还没有 Navidrome 账号'), findsOneWidget);
+      expect(find.text('去服务器页'), findsOneWidget);
       expect(find.text('Midnight City'), findsNothing);
     });
   });

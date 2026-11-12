@@ -66,7 +66,7 @@ class SubtitleTrackInfo {
   String get label {
     if (displayTitle.isNotEmpty) return displayTitle;
     if (language.isNotEmpty) return language;
-    return 'Subtitle $index';
+    return '字幕 $index';
   }
 
   SubtitleTrackInfo copyWith({

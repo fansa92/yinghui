@@ -145,14 +145,14 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Appearance'), findsOneWidget);
-      expect(find.text('Playback'), findsOneWidget);
-      expect(find.text('Downloads'), findsOneWidget);
-      expect(find.text('Data'), findsOneWidget);
-      expect(find.text('About'), findsOneWidget);
+      expect(find.text('外观'), findsOneWidget);
+      expect(find.text('播放'), findsOneWidget);
+      expect(find.text('下载'), findsOneWidget);
+      expect(find.text('数据'), findsOneWidget);
+      expect(find.text('关于'), findsOneWidget);
       expect(find.text('影汇 YingHui'), findsOneWidget);
-      expect(find.text('Version 开发版'), findsOneWidget);
-      expect(find.text('Servers'), findsOneWidget);
+      expect(find.text('版本 开发版'), findsOneWidget);
+      expect(find.text('服务器'), findsOneWidget);
     });
   });
 }

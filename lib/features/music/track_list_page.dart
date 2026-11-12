@@ -43,7 +43,7 @@ class _TrackListPageState extends State<TrackListPage> {
                   ? null
                   : () => widget.player.playQueue(tracks),
               icon: const Icon(Icons.play_arrow),
-              label: const Text('Play All'),
+              label: const Text('全部播放'),
             ),
           ),
           ...tracks.asMap().entries.map((entry) {
