@@ -311,7 +311,7 @@ void main() {
       expect(find.byType(MiniPlayer), findsNothing);
     });
 
-    testWidgets('mini-player is pinned at the bottom of AlbumDetailPage', (
+    testWidgets('mini-player floats above the bottom of AlbumDetailPage', (
       tester,
     ) async {
       final db = AppDatabase.forExecutor(NativeDatabase.memory());
@@ -354,13 +354,19 @@ void main() {
 
       expect(find.byType(MiniPlayer), findsOneWidget);
       expect(find.text('Exclusion Song'), findsOneWidget);
-      // Pinned at the bottom of the screen (default 800x600 surface).
-      expect(tester.getRect(find.byType(MiniPlayer)).bottom, 600.0);
+      // Floating card, not pinned edge-to-edge: on the default
+      // 800x600 surface the 720-capped card is centred (left 40 /
+      // right 760) and sits 12 above the bottom edge.
+      final card = find.byKey(const ValueKey('mini-player-card'));
+      expect(card, findsOneWidget);
+      expect(tester.getRect(card).left, 40.0);
+      expect(tester.getRect(card).right, 760.0);
+      expect(tester.getRect(card).bottom, 588.0);
       // Scroll the track list: the mini-player stays put.
       await tester.drag(find.byType(ListView), const Offset(0, -400));
       await tester.pump();
       expect(find.byType(MiniPlayer), findsOneWidget);
-      expect(tester.getRect(find.byType(MiniPlayer)).bottom, 600.0);
+      expect(tester.getRect(card).bottom, 588.0);
     });
 
     testWidgets('mini-player hides on AlbumDetailPage with no current track', (

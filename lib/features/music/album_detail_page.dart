@@ -96,7 +96,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.album.title)),
-      // The mini-player is pinned at the bottom of this page (same
+      // The mini-player floats above the bottom of this page (same
       // Column pattern as the shell): it stays visible while the
       // track list scrolls, and — unlike the shell's copy — it is not
       // covered when this page is pushed on top. It hides itself when
