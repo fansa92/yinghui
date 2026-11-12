@@ -181,9 +181,16 @@ void main() {
     });
 
     /// Rect of the big cover (the queue rows use 48px covers).
-    Rect coverRect(WidgetTester tester, double size) => tester.getRect(
-      find.byWidgetPredicate((w) => w is CoverImage && w.size == size),
-    );
+    /// The default style's cover fills the content width, so its size
+    /// is layout-dependent — take the largest CoverImage on the page.
+    Rect coverRect(WidgetTester tester) {
+      CoverImage? biggest;
+      for (final element in find.byType(CoverImage).evaluate()) {
+        final cover = element.widget as CoverImage;
+        if (biggest == null || cover.size > biggest.size) biggest = cover;
+      }
+      return tester.getRect(find.byWidget(biggest!));
+    }
 
     /// The play/pause button, by its icon.
     Finder playButton() => find.byWidgetPredicate(
@@ -202,7 +209,7 @@ void main() {
       final settings = await settingsWith(MusicPlayerStyle.standard);
       await pumpPage(tester, player: player, settings: settings);
 
-      final cover = coverRect(tester, 340);
+      final cover = coverRect(tester);
       // Seek slider + volume slider both render below the cover.
       for (final e in find.byType(Slider).evaluate()) {
         expect(
@@ -227,7 +234,7 @@ void main() {
       final settings = await settingsWith(MusicPlayerStyle.appleMusic);
       await pumpPage(tester, player: player, settings: settings);
 
-      final cover = coverRect(tester, 340);
+      final cover = coverRect(tester);
       final play = tester.getRect(playButton());
       expect(play.top, greaterThan(cover.bottom));
       expect(tester.getCenter(playButton()).dx, lessThan(720));
@@ -256,7 +263,7 @@ void main() {
         musicRepo: _DesktopFakeMusicRepo(),
       );
 
-      final cover = coverRect(tester, 340);
+      final cover = coverRect(tester);
       // Heart + Queue button stay with the controls under the cover.
       final heart = tester.getRect(find.byIcon(Icons.favorite_border));
       expect(heart.top, greaterThan(cover.bottom));
@@ -294,7 +301,7 @@ void main() {
       await pumpPage(tester, player: player, settings: settings);
 
       // The desktop move must not reorder the phone layout.
-      final cover = coverRect(tester, 280);
+      final cover = coverRect(tester);
       expect(
         tester.getRect(find.byType(Slider)).top,
         greaterThan(cover.bottom),

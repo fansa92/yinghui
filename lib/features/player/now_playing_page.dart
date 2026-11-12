@@ -25,7 +25,10 @@ String _clock(Duration d) {
 /// restart). Only presentation changes: the queue, seek and playback
 /// behaviour are identical in every style.
 ///
-/// - default: the current M3 green layout, unchanged.
+/// - default: Tempus-style layout (layout pattern only) — the cover
+///   fills the content width, title/artist left-aligned under it,
+///   elapsed and duration flank the slider on one row, a heart and a
+///   播放队列 button under the transport, Up next list below.
 /// - appleMusic: cover-tinted blurred background, white play button,
 ///   remaining time on the right end of the slider, and a volume
 ///   slider wired to the real player volume.
@@ -168,6 +171,56 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   /// Cover + title/artist/source, used in both layouts.
   Widget _coverHeader(Track track, {double coverSize = 280}) {
     final style = _style;
+    if (style == MusicPlayerStyle.standard) {
+      // Tempus-style default: the cover fills the content width and
+      // the title/artist sit left-aligned under it (not centred).
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final size = constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : coverSize;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CoverImage(
+                coverUrl: track.coverUrl,
+                size: size,
+                borderRadius: 16,
+                iconSize: 96,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                track.title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${track.artist} · ${track.album}',
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: YingHuiTheme.textMuted,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                track.sourceLabel,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: YingHuiTheme.textMuted,
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -182,10 +235,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         const SizedBox(height: 24),
         Text(
           track.title,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: style == MusicPlayerStyle.standard ? null : Colors.white,
+            color: Colors.white,
           ),
           textAlign: TextAlign.center,
           maxLines: 2,
@@ -193,12 +246,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         const SizedBox(height: 4),
         Text(
           '${track.artist} · ${track.album}',
-          style: TextStyle(
-            fontSize: 15,
-            color: style == MusicPlayerStyle.standard
-                ? YingHuiTheme.textMuted
-                : Colors.white70,
-          ),
+          style: const TextStyle(fontSize: 15, color: Colors.white70),
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -206,12 +254,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         const SizedBox(height: 8),
         Text(
           track.sourceLabel,
-          style: TextStyle(
-            fontSize: 13,
-            color: style == MusicPlayerStyle.standard
-                ? YingHuiTheme.textMuted
-                : Colors.white70,
-          ),
+          style: const TextStyle(fontSize: 13, color: Colors.white70),
           textAlign: TextAlign.center,
         ),
       ],
@@ -227,69 +270,78 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final duration = timing.duration;
     final position = timing.position;
     final accent = timing.accent;
+    final slider = Slider(
+      value: position.inMilliseconds.toDouble(),
+      max: duration.inMilliseconds.toDouble() > 0
+          ? duration.inMilliseconds.toDouble()
+          : 1,
+      onChanged: (value) => player.seek(Duration(milliseconds: value.round())),
+      activeColor: accent,
+    );
+    final transport = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          icon: Icon(
+            Icons.skip_previous,
+            size: 40,
+            color: style == MusicPlayerStyle.standard ? null : accent,
+          ),
+          onPressed: player.previous,
+        ),
+        const SizedBox(width: 16),
+        IconButton(
+          icon: Icon(
+            player.isPlaying
+                ? Icons.pause_circle_filled
+                : Icons.play_circle_filled,
+            size: 72,
+            color: accent,
+          ),
+          onPressed: player.togglePlay,
+        ),
+        const SizedBox(width: 16),
+        IconButton(
+          icon: Icon(
+            Icons.skip_next,
+            size: 40,
+            color: style == MusicPlayerStyle.standard ? null : accent,
+          ),
+          onPressed: player.next,
+        ),
+      ],
+    );
+    if (style == MusicPlayerStyle.standard) {
+      // Tempus-style default: elapsed and duration flank the slider
+      // on one row, transport below.
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text(_clock(position)),
+              Expanded(child: slider),
+              Text(timing.rightTime),
+            ],
+          ),
+          const SizedBox(height: 8),
+          transport,
+        ],
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Slider(
-          value: position.inMilliseconds.toDouble(),
-          max: duration.inMilliseconds.toDouble() > 0
-              ? duration.inMilliseconds.toDouble()
-              : 1,
-          onChanged: (value) =>
-              player.seek(Duration(milliseconds: value.round())),
-          activeColor: accent,
-        ),
+        slider,
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              _clock(position),
-              style: TextStyle(
-                color: style == MusicPlayerStyle.standard ? null : Colors.white,
-              ),
-            ),
-            Text(
-              timing.rightTime,
-              style: TextStyle(
-                color: style == MusicPlayerStyle.standard ? null : Colors.white,
-              ),
-            ),
+            Text(_clock(position), style: const TextStyle(color: Colors.white)),
+            Text(timing.rightTime, style: const TextStyle(color: Colors.white)),
           ],
         ),
         const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              icon: Icon(
-                Icons.skip_previous,
-                size: 40,
-                color: style == MusicPlayerStyle.standard ? null : accent,
-              ),
-              onPressed: player.previous,
-            ),
-            const SizedBox(width: 16),
-            IconButton(
-              icon: Icon(
-                player.isPlaying
-                    ? Icons.pause_circle_filled
-                    : Icons.play_circle_filled,
-                size: 72,
-                color: accent,
-              ),
-              onPressed: player.togglePlay,
-            ),
-            const SizedBox(width: 16),
-            IconButton(
-              icon: Icon(
-                Icons.skip_next,
-                size: 40,
-                color: style == MusicPlayerStyle.standard ? null : accent,
-              ),
-              onPressed: player.next,
-            ),
-          ],
-        ),
+        transport,
       ],
     );
   }
@@ -334,20 +386,45 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           _StarButton(repo: widget.musicRepo!, track: track)
         else
           const SizedBox(width: 48),
-        TextButton.icon(
-          icon: const Icon(Icons.queue_music, color: Colors.white70),
-          label: const Text('播放队列', style: TextStyle(color: Colors.white70)),
-          onPressed: () {
-            final context = _upNextKey.currentContext;
-            if (context != null) {
-              Scrollable.ensureVisible(
-                context,
-                duration: const Duration(milliseconds: 300),
-              );
-            }
-          },
-        ),
+        _queueJumpButton(Colors.white70),
       ],
+    );
+  }
+
+  /// Tempus-style default action row: heart on the left, 播放队列
+  /// (scrolls to Up next) on the right. Same behaviours as the
+  /// Spotify row, in the default style's colours.
+  Widget _standardRow(Track track) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        if (widget.musicRepo != null)
+          _StarButton(
+            repo: widget.musicRepo!,
+            track: track,
+            activeColor: YingHuiTheme.primaryGreen,
+            inactiveColor: YingHuiTheme.textMuted,
+          )
+        else
+          const SizedBox(width: 48),
+        _queueJumpButton(YingHuiTheme.textMuted),
+      ],
+    );
+  }
+
+  Widget _queueJumpButton(Color color) {
+    return TextButton.icon(
+      icon: Icon(Icons.queue_music, color: color),
+      label: Text('播放队列', style: TextStyle(color: color)),
+      onPressed: () {
+        final context = _upNextKey.currentContext;
+        if (context != null) {
+          Scrollable.ensureVisible(
+            context,
+            duration: const Duration(milliseconds: 300),
+          );
+        }
+      },
     );
   }
 
@@ -460,6 +537,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           const SizedBox(height: 8),
           _spotifyRow(track),
         ],
+        if (style == MusicPlayerStyle.standard) ...[
+          const SizedBox(height: 8),
+          _standardRow(track),
+        ],
         const SizedBox(height: 24),
         _queueSection(),
       ],
@@ -501,6 +582,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                     const SizedBox(height: 8),
                     _spotifyRow(track),
                   ],
+                  if (style == MusicPlayerStyle.standard) ...[
+                    const SizedBox(height: 8),
+                    _standardRow(track),
+                  ],
                 ],
               ),
             ),
@@ -539,10 +624,17 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
 /// Spotify-style heart: the existing track favourite, reused from
 /// the music repository (server star + local Drift favourite).
 class _StarButton extends StatefulWidget {
-  const _StarButton({required this.repo, required this.track});
+  const _StarButton({
+    required this.repo,
+    required this.track,
+    this.activeColor = Colors.white,
+    this.inactiveColor = Colors.white70,
+  });
 
   final MusicRepository repo;
   final Track track;
+  final Color activeColor;
+  final Color inactiveColor;
 
   @override
   State<_StarButton> createState() => _StarButtonState();
@@ -572,7 +664,7 @@ class _StarButtonState extends State<_StarButton> {
         return IconButton(
           icon: Icon(
             starred ? Icons.favorite : Icons.favorite_border,
-            color: starred ? Colors.white : Colors.white70,
+            color: starred ? widget.activeColor : widget.inactiveColor,
           ),
           tooltip: starred ? '取消收藏' : '收藏',
           onPressed: _toggle,

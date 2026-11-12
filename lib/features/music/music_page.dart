@@ -18,11 +18,16 @@ import 'album_detail_page.dart';
 import 'cover_image.dart';
 import 'track_list_page.dart';
 
-/// Music (Navidrome): filter chips, album grid with cover art,
+/// Music (Navidrome): browse sections, album grid with cover art,
 /// search, album detail, favourites. Wired to the real Subsonic API
 /// through [MusicRepository]; with no Navidrome credentials it shows an
 /// explicit empty state instead of silently presenting demo data.
 /// The grid is 2 columns on phones, 4 on desktop (>= 1024 wide).
+///
+/// Browsing follows Tempus's library layout (layout pattern only):
+/// the "浏览" view stacks one section per kind — 专辑, 艺人, 歌单, 收藏 —
+/// each with a header and a "查看全部" button that switches to that
+/// kind's full list. The filter chips stay as the section navigator.
 ///
 /// A server selector sits at the top: "全部" (all Navidrome servers
 /// merged, the default) or one server. The selection is per page and
@@ -51,10 +56,12 @@ class MusicPage extends StatefulWidget {
 }
 
 class _MusicPageState extends State<MusicPage> {
-  static const _filters = ['专辑', '艺人', '歌单', '收藏'];
+  static const _filters = ['浏览', '专辑', '艺人', '歌单', '收藏'];
   static const _pageSize = 20;
 
-  String _filter = '专辑';
+  /// "浏览" stacks every section (Tempus-style); the other filters
+  /// show one kind's full list. "浏览" is the default.
+  String _filter = '浏览';
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
 
@@ -405,6 +412,8 @@ class _MusicPageState extends State<MusicPage> {
 
   Widget _filterBody() {
     switch (_filter) {
+      case '浏览':
+        return _browseSections();
       case '艺人':
         if (_artists.isEmpty) {
           return RefreshIndicator(
@@ -453,42 +462,7 @@ class _MusicPageState extends State<MusicPage> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: _playlists.length,
-            itemBuilder: (context, i) {
-              final p = _playlists[i];
-              return ListTile(
-                leading: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: YingHuiTheme.primaryGreen.withValues(alpha: 0.25),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.queue_music,
-                    color: YingHuiTheme.primaryGreen,
-                  ),
-                ),
-                title: Text(p.name),
-                subtitle: Text('${p.songCount} 首歌 · ${p.sourceLabel}'),
-                onTap: () async {
-                  final tracks = await widget.repo.playlistTracks(
-                    p.id,
-                    p.serverId,
-                  );
-                  if (!context.mounted) return;
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => TrackListPage(
-                        title: p.name,
-                        tracks: tracks,
-                        repo: widget.repo,
-                        player: widget.player,
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
+            itemBuilder: (context, i) => _playlistTile(_playlists[i]),
           ),
         );
       case '收藏':
@@ -532,18 +506,7 @@ class _MusicPageState extends State<MusicPage> {
               ],
               if (_starredSongs.isNotEmpty) ...[
                 const _SectionTitle('收藏的歌曲'),
-                ..._starredSongs.map(
-                  (t) => ListTile(
-                    leading: CoverImage(coverUrl: t.coverUrl),
-                    title: Text(t.title),
-                    subtitle: Text('${t.artist} · ${t.album}'),
-                    trailing: Text(t.durationText),
-                    onTap: () => widget.player.playQueue(
-                      _starredSongs,
-                      startIndex: _starredSongs.indexOf(t),
-                    ),
-                  ),
-                ),
+                ..._starredSongs.map(_starredSongTile),
               ],
               const SizedBox(height: 16),
             ],
@@ -583,85 +546,292 @@ class _MusicPageState extends State<MusicPage> {
                 return const Center(child: CircularProgressIndicator());
               }
               final a = _albums[i];
-              return Card(
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => AlbumDetailPage(
-                        album: a,
-                        repo: widget.repo,
-                        player: widget.player,
-                        settings: widget.settings,
-                      ),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: a.coverUrl == null
-                              ? Container(
-                                  color: YingHuiTheme.primaryGreen.withValues(
-                                    alpha: 0.2,
-                                  ),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.album,
-                                      size: 48,
-                                      color: YingHuiTheme.primaryGreen,
-                                    ),
-                                  ),
-                                )
-                              : CoverImage(
-                                  coverUrl: a.coverUrl,
-                                  fill: true,
-                                  borderRadius: 0,
-                                ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              a.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              '${a.artist} · ${a.year ?? ''}',
-                              style: const TextStyle(
-                                color: YingHuiTheme.textMuted,
-                                fontSize: 13,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              a.sourceLabel,
-                              style: const TextStyle(
-                                color: YingHuiTheme.textMuted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
+              return _albumCard(a);
             },
           ),
         );
     }
+  }
+
+  /// Tempus-style browse view: one section per kind, each with a
+  /// header and a "查看全部" button that switches to that kind's
+  /// full list. Previews are capped (8 albums, 6 artists, 4
+  /// playlists, 4 starred albums/songs) so no section dominates.
+  /// Empty sections are hidden; when everything is empty the page
+  /// shows a single empty line instead of four.
+  Widget _browseSections() {
+    final hasAlbums = _albums.isNotEmpty;
+    final hasArtists = _artists.isNotEmpty;
+    final hasPlaylists = _playlists.isNotEmpty;
+    final hasStarred = _starredSongs.isNotEmpty || _starredAlbums.isNotEmpty;
+    if (!hasAlbums && !hasArtists && !hasPlaylists && !hasStarred) {
+      return RefreshIndicator(
+        onRefresh: _loadInitial,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Center(child: Text('还没有音乐。')),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadInitial,
+      child: ListView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          if (hasAlbums) ...[
+            _sectionHeader('专辑', '专辑'),
+            _albumGrid(_albums.take(8).toList()),
+            const SizedBox(height: 8),
+          ],
+          if (hasArtists) ...[
+            _sectionHeader('艺人', '艺人'),
+            _artistGrid(_artists.take(6).toList()),
+            const SizedBox(height: 8),
+          ],
+          if (hasPlaylists) ...[
+            _sectionHeader('歌单', '歌单'),
+            ..._playlists.take(4).map(_playlistTile),
+          ],
+          if (hasStarred) ...[
+            _sectionHeader('收藏', '收藏'),
+            if (_starredAlbums.isNotEmpty)
+              _albumGrid(_starredAlbums.take(4).toList()),
+            ..._starredSongs.take(4).map(_starredSongTile),
+          ],
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  /// A browse section's header: title on the left, "查看全部" on the
+  /// right, switching to that kind's full list (same as its chip).
+  Widget _sectionHeader(String title, String filter) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () => setState(() => _filter = filter),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('查看全部 ›'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _albumGrid(List<Album> albums) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: gridColumnsForWidth(MediaQuery.of(context).size.width),
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.85,
+      ),
+      itemCount: albums.length,
+      itemBuilder: (context, i) => _albumCard(albums[i]),
+    );
+  }
+
+  /// One album card: square cover, title, artist · year, source.
+  /// Tempus's library grid shows the same three lines under a
+  /// square cover.
+  Widget _albumCard(Album a) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => AlbumDetailPage(
+              album: a,
+              repo: widget.repo,
+              player: widget.player,
+              settings: widget.settings,
+            ),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SizedBox(
+                width: double.infinity,
+                child: a.coverUrl == null
+                    ? Container(
+                        color: YingHuiTheme.primaryGreen.withValues(alpha: 0.2),
+                        child: const Center(
+                          child: Icon(
+                            Icons.album,
+                            size: 48,
+                            color: YingHuiTheme.primaryGreen,
+                          ),
+                        ),
+                      )
+                    : CoverImage(
+                        coverUrl: a.coverUrl,
+                        fill: true,
+                        borderRadius: 0,
+                      ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    a.title,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    '${a.artist} · ${a.year ?? ''}',
+                    style: const TextStyle(
+                      color: YingHuiTheme.textMuted,
+                      fontSize: 13,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    a.sourceLabel,
+                    style: const TextStyle(
+                      color: YingHuiTheme.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _artistGrid(List<Artist> artists) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: gridColumnsForWidth(MediaQuery.of(context).size.width),
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.85,
+      ),
+      itemCount: artists.length,
+      itemBuilder: (context, i) => _artistCard(artists[i]),
+    );
+  }
+
+  /// One artist card: large round avatar, name, album count.
+  /// Artists have no cover art in our model (and no detail page),
+  /// so the card is display-only, like the artist rows.
+  Widget _artistCard(Artist a) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              color: YingHuiTheme.primaryGreen.withValues(alpha: 0.15),
+              child: const Center(
+                child: CircleAvatar(
+                  radius: 40,
+                  child: Icon(Icons.person, size: 40),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  a.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '${a.albumCount} 张专辑',
+                  style: const TextStyle(
+                    color: YingHuiTheme.textMuted,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _playlistTile(Playlist p) {
+    return ListTile(
+      leading: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: YingHuiTheme.primaryGreen.withValues(alpha: 0.25),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.queue_music, color: YingHuiTheme.primaryGreen),
+      ),
+      title: Text(p.name),
+      subtitle: Text('${p.songCount} 首歌 · ${p.sourceLabel}'),
+      onTap: () async {
+        final tracks = await widget.repo.playlistTracks(p.id, p.serverId);
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => TrackListPage(
+              title: p.name,
+              tracks: tracks,
+              repo: widget.repo,
+              player: widget.player,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _starredSongTile(Track t) {
+    return ListTile(
+      leading: CoverImage(coverUrl: t.coverUrl),
+      title: Text(t.title),
+      subtitle: Text('${t.artist} · ${t.album}'),
+      trailing: Text(t.durationText),
+      onTap: () => widget.player.playQueue(
+        _starredSongs,
+        startIndex: _starredSongs.indexOf(t),
+      ),
+    );
   }
 }
 

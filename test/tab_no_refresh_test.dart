@@ -379,10 +379,11 @@ void main() {
       expect(video.continueCalls, 2);
       expect(video.recentCalls, 2);
 
-      // Music: pull the album grid down.
+      // Music: pull the browse view down (one GridView per
+      // section now; the first is the albums preview).
       await tapTab(tester, '音乐');
       expect(music.albumsCalls, 3);
-      await tester.drag(find.byType(GridView), const Offset(0, 400));
+      await tester.drag(find.byType(GridView).first, const Offset(0, 400));
       await tester.pumpAndSettle();
       expect(music.albumsCalls, 4);
       expect(music.artistsCalls, 2);
