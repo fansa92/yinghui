@@ -670,7 +670,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('68%'), findsOneWidget);
+      // The percentage now lives inside the qBitController-style
+      // progress line, not a standalone circular badge.
+      expect(find.text('1.3 GB / 1.9 GB (68%)'), findsOneWidget);
+      expect(find.text('剩余 3分钟'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.text('磁力详情'), findsOneWidget);
       expect(find.textContaining('magnet:?xt=urn:btih:'), findsOneWidget);
       expect(find.text(hash40), findsOneWidget);

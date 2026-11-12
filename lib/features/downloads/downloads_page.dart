@@ -12,6 +12,7 @@ import '../../data/repositories/download_repository.dart';
 import '../../data/repositories/server_store.dart';
 import '../servers/servers_page.dart';
 import 'download_detail_page.dart';
+import 'download_progress.dart';
 
 /// Downloads: one unified queue for qBittorrent + Transmission + aria2.
 ///
@@ -25,6 +26,13 @@ import 'download_detail_page.dart';
 /// persisted in [AppStateStore]; it only ever filters this page — the
 /// polling timer and every action-triggered refresh honour it through
 /// the repository's [DownloadRepository.serverFilter].
+///
+/// Each task row follows qBitController's torrent-row layout (layout
+/// pattern only): name, a source chip under it, then the shared
+/// [DownloadProgressSection] — progress line + ETA, a state-coloured
+/// bar, state + speed — and the pause/resume/delete buttons. The
+/// multi-server merge, filters, server selector and 5s polling are
+/// unchanged.
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
     super.key,
@@ -383,61 +391,26 @@ class _DownloadsPageState extends State<DownloadsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    t.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Chip(
-                  label: Text(
-                    t.source.label,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
+            // Name on its own line: full width now that the chip
+            // moved below it.
+            Text(
+              t.name,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
-            Text(
-              [
-                t.status.label,
-                t.progressText,
-                t.speedText,
-                t.remainingText,
-                t.sizeText,
-              ].where((s) => s.isNotEmpty).join(' · '),
-              style: const TextStyle(
-                color: YingHuiTheme.textMuted,
-                fontSize: 13,
-              ),
+            // qBitController's chip row under the name. The source is
+            // our category equivalent — the merged queue has no
+            // categories or tags. (The save path left the row with
+            // this restyle; it is still on the detail page.)
+            Chip(
+              label: Text(t.source.label, style: const TextStyle(fontSize: 12)),
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
             ),
-            if (t.savePath.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                t.savePath,
-                style: const TextStyle(
-                  color: YingHuiTheme.textMuted,
-                  fontSize: 12,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
             const SizedBox(height: 8),
-            LinearProgressIndicator(
-              value: t.progress,
-              color: YingHuiTheme.downloadAmber,
-              backgroundColor: Theme.of(context).colorScheme.onSurface
-                  .withValues(alpha: 0.12),
-              minHeight: 4,
-              borderRadius: BorderRadius.circular(2),
-            ),
+            DownloadProgressSection(task: t),
             const SizedBox(height: 4),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,

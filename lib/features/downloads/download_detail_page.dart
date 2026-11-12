@@ -5,16 +5,20 @@ import '../../core/theme.dart';
 import '../../core/widgets/desktop_layout.dart';
 import '../../data/models/download_task.dart';
 import '../../data/repositories/download_repository.dart';
+import 'download_progress.dart';
 
 /// Download detail page (batch 2), opened by tapping a task card.
 ///
-/// Layout follows the download-detail mockup (amber circular progress,
-/// speed, remaining time, downloaded/total, source, save path, file
-/// list, pause/resume/delete) — except the mockup wrongly shows both
-/// Pause and Resume at once; here only one appears, depending on
-/// status. Plus magnet details: magnet URI (reconstructed from the
-/// hash when only the hash is known), the full hash, and the original
-/// download link, each with a copy button when the value exists.
+/// Layout follows qBitController's torrent-overview layout (layout
+/// pattern only): the progress card on top (the same
+/// [DownloadProgressSection] as the list row — progress line + ETA,
+/// state-coloured bar, state + speed), then info cards with centred
+/// section titles — 任务信息， 磁力详情， and 文件 when the client
+/// returns one — and the pause/resume/delete actions at the bottom.
+/// Only one of Pause / Resume appears, depending on status.
+/// Magnet details: magnet URI (reconstructed from the hash when only
+/// the hash is known), the full hash, and the original download link,
+/// each with a copy button when the value exists.
 class DownloadDetailPage extends StatelessWidget {
   const DownloadDetailPage({super.key, required this.task, required this.repo});
 
@@ -96,61 +100,8 @@ class DownloadDetailPage extends StatelessWidget {
       children: [
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                SizedBox(
-                  width: 140,
-                  height: 140,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox.expand(
-                        child: CircularProgressIndicator(
-                          value: t.progress,
-                          strokeWidth: 10,
-                          color: YingHuiTheme.downloadAmber,
-                          backgroundColor: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.12),
-                        ),
-                      ),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            t.progressText,
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            t.status.label,
-                            style: const TextStyle(
-                              color: YingHuiTheme.textMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _stat('速度', t.speedText.isEmpty ? '—' : t.speedText),
-                    _stat(
-                      '剩余时间',
-                      t.remainingText.isEmpty ? '—' : t.remainingText,
-                    ),
-                    _stat('已下载 / 总大小', t.sizeText.isEmpty ? '—' : t.sizeText),
-                  ],
-                ),
-              ],
-            ),
+            padding: const EdgeInsets.all(16),
+            child: DownloadProgressSection(task: t),
           ),
         ),
         const SizedBox(height: 16),
@@ -264,23 +215,6 @@ class DownloadDetailPage extends StatelessWidget {
     );
   }
 
-  Widget _stat(String label, String value) => Expanded(
-    child: Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(color: YingHuiTheme.textMuted, fontSize: 12),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    ),
-  );
-
   static Widget _infoRow(String label, String value) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(
@@ -357,9 +291,15 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            Center(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: YingHuiTheme.primaryGreen,
+                ),
+              ),
             ),
             const SizedBox(height: 8),
             child,

@@ -126,6 +126,13 @@ class DownloadTask {
 
   String get progressText => '${(progress * 100).toStringAsFixed(0)}%';
 
+  /// qBitController-style progress line: 'downloaded / size (progress%)'.
+  /// Falls back to just the percentage when the size is unknown.
+  String get progressLineText {
+    if (sizeBytes <= 0) return progressText;
+    return '$sizeText ($progressText)';
+  }
+
   String get speedText {
     if (speedBytesPerSec <= 0) return '';
     if (speedBytesPerSec >= 1024 * 1024) {
