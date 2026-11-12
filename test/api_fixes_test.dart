@@ -707,6 +707,10 @@ void main() {
     });
 
     test('decidePlayback pins the transcode to the chosen source', () async {
+      // The transcode branch is forced by the server flag (the
+      // source does not support direct play); the point of this
+      // test is that the transcode URL carries the chosen source's
+      // id, not which files transcode.
       final db = AppDatabase.forExecutor(NativeDatabase.memory());
       addTearDown(() async => db.close());
       final store = ServerStore(
@@ -730,7 +734,7 @@ void main() {
                       'Container': 'mkv',
                       'VideoCodec': 'hevc',
                       'AudioCodec': 'dts',
-                      'SupportsDirectPlay': true,
+                      'SupportsDirectPlay': false,
                       'SupportsDirectStream': true,
                       'MediaStreams': [
                         {'Type': 'Video', 'Index': 0, 'Codec': 'hevc'},

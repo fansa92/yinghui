@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import '../../core/proxy_config.dart';
+
 import '../../core/errors.dart';
 import '../../core/models/connection_result.dart';
 import '../../core/models/server.dart';
@@ -23,7 +25,9 @@ class QbittorrentClient {
               connectTimeout: const Duration(seconds: 10),
               receiveTimeout: const Duration(seconds: 30),
             ),
-          );
+          ) {
+    DioProxy.apply(this.dio);
+  }
 
   final Server server;
   final Dio dio;

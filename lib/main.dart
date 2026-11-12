@@ -4,6 +4,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 
 import 'core/app_state.dart';
+import 'core/proxy_config.dart';
 import 'core/settings.dart';
 import 'core/theme.dart';
 import 'data/repositories/download_repository.dart';
@@ -96,8 +97,17 @@ class _YingHuiAppState extends State<YingHuiApp> {
     // Load saved servers (Drift + secure storage) and settings.
     // Failures are non-fatal: the app still starts, with the Music
     // empty state.
+    _settings.addListener(_onSettingsChanged);
     _settings.load();
     _store.load();
+  }
+
+  /// A settings change re-applies the desktop proxy to every Dio
+  /// client (Settings notifies on load too, so the stored proxy is
+  /// applied once loading finishes — even for clients created
+  /// before the load completed).
+  void _onSettingsChanged() {
+    DioProxy.update(_settings.proxyConfig);
   }
 
   /// Restore the last music session into the mini-player: queue +
@@ -133,6 +143,7 @@ class _YingHuiAppState extends State<YingHuiApp> {
 
   @override
   void dispose() {
+    _settings.removeListener(_onSettingsChanged);
     _player.removeListener(_onPlayerChanged);
     _player.dispose();
     _downloadRepo.dispose();

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -37,6 +38,20 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   int _imageCacheBytes = -1;
+
+  /// Desktop = a platform with a mouse. Same rule as the Servers
+  /// page: width is not the test — a narrow desktop window still
+  /// has a mouse, and a wide tablet does not. The proxy section is
+  /// desktop-only because mobile networks are not expected to need
+  /// a manually configured HTTP proxy.
+  bool get _isDesktop {
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+  }
 
   @override
   void initState() {
@@ -321,6 +336,59 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const Divider(),
+            if (_isDesktop) ...[
+              _sectionTitle('代理'),
+              SwitchListTile(
+                title: const Text('使用 HTTP 代理'),
+                subtitle: const Text(
+                  '服务器连接（Navidrome、Emby、下载器）走代理；音乐和视频播放不走代理。',
+                ),
+                value: settings.proxyConfig.enabled,
+                onChanged: settings.setProxyEnabled,
+              ),
+              if (settings.proxyConfig.enabled) ...[
+                ListTile(
+                  title: const Text('代理地址'),
+                  trailing: SizedBox(
+                    width: 160,
+                    child: TextField(
+                      controller: TextEditingController(
+                        text: settings.proxyConfig.host,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: '127.0.0.1',
+                        border: InputBorder.none,
+                      ),
+                      textAlign: TextAlign.right,
+                      onSubmitted: settings.setProxyHost,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('代理端口'),
+                  trailing: SizedBox(
+                    width: 160,
+                    child: TextField(
+                      controller: TextEditingController(
+                        text: settings.proxyConfig.port > 0
+                            ? '${settings.proxyConfig.port}'
+                            : '',
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: '7890',
+                        border: InputBorder.none,
+                      ),
+                      textAlign: TextAlign.right,
+                      keyboardType: TextInputType.number,
+                      onSubmitted: (value) => settings.setProxyPort(
+                        int.tryParse(value.trim()) ?? 0,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              const Divider(),
+            ],
             _sectionTitle('数据'),
             ListTile(
               title: const Text('搜索记录'),

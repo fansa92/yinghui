@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/repositories/playback_decision.dart';
+import 'proxy_config.dart';
 
 /// App version: from the release tag via `--dart-define=APP_VERSION`
 /// (release.yml sets it from the tag on tag builds, 'dev' on any other
@@ -135,6 +136,12 @@ class SettingsService extends ChangeNotifier {
   static const _kMusicPlayerStyle = 'yinghui_music_player_style';
   static const _kVideoPlayerStyle = 'yinghui_video_player_style';
 
+  /// Desktop HTTP proxy (see [ProxyConfig]): enabled, host, port.
+  /// Persisted even when disabled, so the fields keep their values.
+  static const _kProxyEnabled = 'yinghui_proxy_enabled';
+  static const _kProxyHost = 'yinghui_proxy_host';
+  static const _kProxyPort = 'yinghui_proxy_port';
+
   ThemeMode _themeMode = ThemeMode.system;
   int _seedIndex = 0;
   double _fontScale = 1.0;
@@ -149,6 +156,7 @@ class SettingsService extends ChangeNotifier {
   List<String> _searchHistory = [];
   MusicPlayerStyle _musicPlayerStyle = MusicPlayerStyle.standard;
   VideoPlayerStyle _videoPlayerStyle = VideoPlayerStyle.standard;
+  ProxyConfig _proxyConfig = const ProxyConfig();
 
   ThemeMode get themeMode => _themeMode;
   int get seedIndex => _seedIndex;
@@ -167,6 +175,7 @@ class SettingsService extends ChangeNotifier {
   List<String> get searchHistory => List.unmodifiable(_searchHistory);
   MusicPlayerStyle get musicPlayerStyle => _musicPlayerStyle;
   VideoPlayerStyle get videoPlayerStyle => _videoPlayerStyle;
+  ProxyConfig get proxyConfig => _proxyConfig;
 
   Future<SharedPreferences> _ensurePrefs() async =>
       _prefs ??= await SharedPreferences.getInstance();
@@ -199,6 +208,11 @@ class SettingsService extends ChangeNotifier {
     _videoPlayerStyle = VideoPlayerStyle.fromString(
       p.getString(_kVideoPlayerStyle),
     );
+    _proxyConfig = ProxyConfig(
+      enabled: p.getBool(_kProxyEnabled) ?? false,
+      host: p.getString(_kProxyHost) ?? '',
+      port: p.getInt(_kProxyPort) ?? 0,
+    );
     notifyListeners();
   }
 
@@ -222,6 +236,9 @@ class SettingsService extends ChangeNotifier {
     await p.setStringList(_kSearchHistory, _searchHistory);
     await p.setString(_kMusicPlayerStyle, _musicPlayerStyle.storageName);
     await p.setString(_kVideoPlayerStyle, _videoPlayerStyle.storageName);
+    await p.setBool(_kProxyEnabled, _proxyConfig.enabled);
+    await p.setString(_kProxyHost, _proxyConfig.host);
+    await p.setInt(_kProxyPort, _proxyConfig.port);
   }
 
   Future<void> _update(Future<void> Function() save) async {
@@ -291,6 +308,21 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> setVideoPlayerStyle(VideoPlayerStyle style) async {
     _videoPlayerStyle = style;
+    await _update(_save);
+  }
+
+  Future<void> setProxyEnabled(bool value) async {
+    _proxyConfig = _proxyConfig.copyWith(enabled: value);
+    await _update(_save);
+  }
+
+  Future<void> setProxyHost(String host) async {
+    _proxyConfig = _proxyConfig.copyWith(host: host.trim());
+    await _update(_save);
+  }
+
+  Future<void> setProxyPort(int port) async {
+    _proxyConfig = _proxyConfig.copyWith(port: port.clamp(0, 65535));
     await _update(_save);
   }
 
