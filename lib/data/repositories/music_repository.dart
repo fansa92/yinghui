@@ -12,20 +12,24 @@ abstract class MusicRepository {
   /// True when at least one Navidrome server has a username + password.
   bool get hasCredentials;
 
+  /// [serverId] scopes the load to one Navidrome server; null (the
+  /// default) merges across all credentialed Navidrome servers. The
+  /// Home page never passes it, so Home always stays merged.
   Future<List<Album>> albums({
     String type = 'newest',
     int size = 20,
     int offset = 0,
+    String? serverId,
   });
-  Future<List<Artist>> artists();
+  Future<List<Artist>> artists({String? serverId});
   Future<({List<Track> songs, List<Album> albums, List<Artist> artists})>
-  search(String query);
+  search(String query, {String? serverId});
   Future<({Album album, List<Track> tracks})> album(
     String albumId,
     String serverId,
   );
-  Future<({List<Track> songs, List<Album> albums})> starred();
-  Future<List<Playlist>> playlists();
+  Future<({List<Track> songs, List<Album> albums})> starred({String? serverId});
+  Future<List<Playlist>> playlists({String? serverId});
   Future<List<Track>> playlistTracks(String playlistId, String serverId);
   Future<bool> toggleStarTrack(Track track);
   Future<bool> toggleStarAlbum(Album album);
@@ -109,18 +113,26 @@ class RealMusicRepository implements MusicRepository {
   }
 
   /// Run [fetch] on every credentialed server, skipping servers that
-  /// fail, and merge + dedupe the results by [key].
+  /// fail, and merge + dedupe the results by [key]. With [serverId]
+  /// set, only that server is queried at all — and its failure is
+  /// rethrown instead of swallowed, so a page filtered to one offline
+  /// server shows an error instead of a misleading empty list.
   Future<List<T>> _merged<T>(
     Future<List<T>> Function(SubsonicClient client) fetch,
-    String Function(T item) key,
-  ) async {
+    String Function(T item) key, {
+    String? serverId,
+  }) async {
+    final clients = serverId == null
+        ? _clients
+        : _clients.where((e) => e.$1.id == serverId).toList();
     final out = <T>[];
     final seen = <String>{};
-    for (final (_, client) in _clients) {
+    for (final (_, client) in clients) {
       List<T> items;
       try {
         items = await fetch(client);
       } on ApiException {
+        if (serverId != null) rethrow;
         continue;
       }
       for (final item in items) {
@@ -135,23 +147,29 @@ class RealMusicRepository implements MusicRepository {
     String type = 'newest',
     int size = 20,
     int offset = 0,
+    String? serverId,
   }) async {
     if (!hasCredentials) return FakeMusicRepo.albums;
     return _merged<Album>(
       (c) => c.getAlbumList2(type: type, size: size, offset: offset),
       (a) => '${a.title.toLowerCase()}|${a.artist.toLowerCase()}',
+      serverId: serverId,
     );
   }
 
   @override
-  Future<List<Artist>> artists() async {
+  Future<List<Artist>> artists({String? serverId}) async {
     if (!hasCredentials) return [];
-    return _merged<Artist>((c) => c.getArtists(), (a) => a.name.toLowerCase());
+    return _merged<Artist>(
+      (c) => c.getArtists(),
+      (a) => a.name.toLowerCase(),
+      serverId: serverId,
+    );
   }
 
   @override
   Future<({List<Track> songs, List<Album> albums, List<Artist> artists})>
-  search(String query) async {
+  search(String query, {String? serverId}) async {
     if (!hasCredentials) {
       final q = query.toLowerCase();
       final songs = FakeMusicRepo.tracks
@@ -173,10 +191,14 @@ class RealMusicRepository implements MusicRepository {
     }
     final results =
         <({List<Track> songs, List<Album> albums, List<Artist> artists})>[];
-    for (final (_, client) in _clients) {
+    final clients = serverId == null
+        ? _clients
+        : _clients.where((e) => e.$1.id == serverId).toList();
+    for (final (_, client) in clients) {
       try {
         results.add(await client.searchAll(query));
       } on ApiException {
+        if (serverId != null) rethrow;
         continue;
       }
     }
@@ -227,13 +249,19 @@ class RealMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<({List<Track> songs, List<Album> albums})> starred() async {
+  Future<({List<Track> songs, List<Album> albums})> starred({
+    String? serverId,
+  }) async {
     if (!hasCredentials) return (songs: <Track>[], albums: <Album>[]);
     final results = <({List<Track> songs, List<Album> albums})>[];
-    for (final (_, client) in _clients) {
+    final clients = serverId == null
+        ? _clients
+        : _clients.where((e) => e.$1.id == serverId).toList();
+    for (final (_, client) in clients) {
       try {
         results.add(await client.getStarred2());
       } on ApiException {
+        if (serverId != null) rethrow;
         continue;
       }
     }
@@ -259,11 +287,12 @@ class RealMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<List<Playlist>> playlists() async {
+  Future<List<Playlist>> playlists({String? serverId}) async {
     if (!hasCredentials) return [];
     return _merged<Playlist>(
       (c) => c.getPlaylists(),
       (p) => p.name.toLowerCase(),
+      serverId: serverId,
     );
   }
 

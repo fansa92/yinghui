@@ -794,6 +794,10 @@ class _BatchFakeDownloadRepo extends ChangeNotifier
   @override
   List<Server> get usableDownloaders => const [];
 
+  /// Per-page server filter (unused by this fake: it has no tasks).
+  @override
+  String? serverFilter;
+
   @override
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
 

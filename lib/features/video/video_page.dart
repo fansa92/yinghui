@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_state.dart';
+import '../../core/models/server.dart';
 import '../../core/settings.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/desktop_layout.dart';
+import '../../core/widgets/server_selector.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/video_item.dart';
 import '../../data/repositories/playback_store.dart';
@@ -19,6 +23,10 @@ import 'video_detail_page.dart';
 /// Wired to the real Emby API through [VideoRepository]; with no Emby
 /// credentials it shows an explicit empty state instead of silently
 /// presenting demo data.
+///
+/// A server selector sits at the top: "全部" (all Emby servers merged,
+/// the default) or one server. The selection is per page and persisted
+/// in [AppStateStore]; it only ever filters this page.
 class VideoPage extends StatefulWidget {
   const VideoPage({
     super.key,
@@ -63,10 +71,33 @@ class _VideoPageState extends State<VideoPage> {
   /// the empty state until the next tab switch.
   bool _hadCredentials = false;
 
+  /// This page's server selection: a server id, or null for "全部".
+  /// Restored from [AppStateStore] in initState; [effectiveServerId]
+  /// sanitises it against the live server list.
+  String? _serverId;
+
+  /// Emby server ids seen at the last store change, so a server added
+  /// or removed while this page is open updates the selector.
+  Set<String> _knownTypeIds = {};
+
+  List<Server> get _typeServers =>
+      widget.store.servers.where((s) => s.type == ServerType.emby).toList();
+
+  /// The selection to actually query: null when nothing is selected
+  /// or when the selected server no longer exists (deleted) — the
+  /// page then falls back to "全部" instead of querying a ghost.
+  String? get _effectiveServerId {
+    final id = _serverId;
+    if (id == null) return null;
+    return _typeServers.any((s) => s.id == id) ? id : null;
+  }
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _serverId = widget.appState?.videoServerId;
+    _knownTypeIds = _typeServers.map((s) => s.id).toSet();
     _hadCredentials = widget.repo.hasCredentials;
     widget.store.addListener(_onStoreChanged);
     if (_hadCredentials) {
@@ -85,6 +116,31 @@ class _VideoPageState extends State<VideoPage> {
       _loadInitial();
     }
     _hadCredentials = now;
+    // A server added or removed while this page is open must update
+    // the selector; a deleted selected server falls back to "全部"
+    // and the stale persisted value is cleared.
+    final ids = _typeServers.map((s) => s.id).toSet();
+    if (ids.length != _knownTypeIds.length || !ids.containsAll(_knownTypeIds)) {
+      _knownTypeIds = ids;
+      if (_serverId != null && !ids.contains(_serverId)) {
+        _serverId = null;
+        unawaited(widget.appState?.setVideoServerId(null));
+      }
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Switch this page to one server (or null for "全部") and reload.
+  /// The search is cleared: its results belong to the old selection.
+  void _selectServer(String? id) {
+    if (id == _effectiveServerId) return;
+    setState(() {
+      _serverId = id;
+      _searchResult = null;
+      _searchController.clear();
+    });
+    unawaited(widget.appState?.setVideoServerId(id));
+    _loadInitial();
   }
 
   @override
@@ -110,10 +166,20 @@ class _VideoPageState extends State<VideoPage> {
       _error = null;
     });
     try {
-      final continuing = await widget.repo.continueWatching();
-      final recent = await widget.repo.recentlyAdded();
-      final movies = await widget.repo.movies(limit: _pageSize);
-      final series = await widget.repo.series(limit: _pageSize);
+      final continuing = await widget.repo.continueWatching(
+        serverId: _effectiveServerId,
+      );
+      final recent = await widget.repo.recentlyAdded(
+        serverId: _effectiveServerId,
+      );
+      final movies = await widget.repo.movies(
+        limit: _pageSize,
+        serverId: _effectiveServerId,
+      );
+      final series = await widget.repo.series(
+        limit: _pageSize,
+        serverId: _effectiveServerId,
+      );
       if (!mounted) return;
       setState(() {
         _continueWatching = continuing;
@@ -136,8 +202,16 @@ class _VideoPageState extends State<VideoPage> {
     setState(() => _loadingMore = true);
     try {
       final more = _filter == 'Movies'
-          ? await widget.repo.movies(limit: _pageSize, offset: _movies.length)
-          : await widget.repo.series(limit: _pageSize, offset: _series.length);
+          ? await widget.repo.movies(
+              limit: _pageSize,
+              offset: _movies.length,
+              serverId: _effectiveServerId,
+            )
+          : await widget.repo.series(
+              limit: _pageSize,
+              offset: _series.length,
+              serverId: _effectiveServerId,
+            );
       if (!mounted) return;
       setState(() {
         if (_filter == 'Movies') {
@@ -163,7 +237,7 @@ class _VideoPageState extends State<VideoPage> {
     widget.settings.recordSearch(q);
     setState(() => _loading = true);
     try {
-      final result = await widget.repo.search(q);
+      final result = await widget.repo.search(q, serverId: _effectiveServerId);
       if (!mounted) return;
       setState(() {
         _searchResult = result;
@@ -220,6 +294,15 @@ class _VideoPageState extends State<VideoPage> {
           controller: _scrollController,
           padding: const EdgeInsets.all(16),
           children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ServerSelector(
+                servers: _typeServers,
+                selectedId: _effectiveServerId,
+                onSelected: _selectServer,
+                onManageServers: _openServers,
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: TextField(

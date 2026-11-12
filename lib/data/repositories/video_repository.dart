@@ -16,11 +16,23 @@ abstract class VideoRepository {
   bool get hasCredentials;
 
   Future<List<LibraryView>> libraries();
-  Future<List<VideoItem>> continueWatching();
-  Future<List<VideoItem>> recentlyAdded();
-  Future<List<VideoItem>> movies({int limit = 20, int offset = 0});
-  Future<List<VideoItem>> series({int limit = 20, int offset = 0});
-  Future<List<VideoItem>> search(String query);
+
+  /// [serverId] scopes the load to one Emby server; null (the
+  /// default) merges across all credentialed Emby servers. The Home
+  /// page never passes it, so Home always stays merged.
+  Future<List<VideoItem>> continueWatching({String? serverId});
+  Future<List<VideoItem>> recentlyAdded({String? serverId});
+  Future<List<VideoItem>> movies({
+    int limit = 20,
+    int offset = 0,
+    String? serverId,
+  });
+  Future<List<VideoItem>> series({
+    int limit = 20,
+    int offset = 0,
+    String? serverId,
+  });
+  Future<List<VideoItem>> search(String query, {String? serverId});
   Future<SeriesDetail> seriesDetail(String seriesId, String serverId);
   Future<VideoDetail> itemDetail(String itemId, String serverId);
 
@@ -110,18 +122,26 @@ class RealVideoRepository implements VideoRepository {
   }
 
   /// Run [fetch] on every credentialed server, skipping servers that
-  /// fail, and merge + dedupe the results by [key].
+  /// fail, and merge + dedupe the results by [key]. With [serverId]
+  /// set, only that server is queried at all — and its failure is
+  /// rethrown instead of swallowed, so a page filtered to one offline
+  /// server shows an error instead of a misleading empty list.
   Future<List<T>> _merged<T>(
     Future<List<T>> Function(EmbyClient client) fetch,
-    String Function(T item) key,
-  ) async {
+    String Function(T item) key, {
+    String? serverId,
+  }) async {
+    final clients = serverId == null
+        ? _clients
+        : _clients.where((e) => e.$1.id == serverId).toList();
     final out = <T>[];
     final seen = <String>{};
-    for (final (_, client) in _clients) {
+    for (final (_, client) in clients) {
       List<T> items;
       try {
         items = await fetch(client);
       } on ApiException {
+        if (serverId != null) rethrow;
         continue;
       }
       for (final item in items) {
@@ -149,67 +169,91 @@ class RealVideoRepository implements VideoRepository {
   }
 
   @override
-  Future<List<VideoItem>> continueWatching() async {
+  Future<List<VideoItem>> continueWatching({String? serverId}) async {
     if (!hasCredentials) return FakeVideoRepo.continueWatching;
-    return _merged<VideoItem>((c) => c.getResumeItems(), _videoKey);
+    return _merged<VideoItem>(
+      (c) => c.getResumeItems(),
+      _videoKey,
+      serverId: serverId,
+    );
   }
 
   @override
-  Future<List<VideoItem>> recentlyAdded() async {
+  Future<List<VideoItem>> recentlyAdded({String? serverId}) async {
     if (!hasCredentials) return FakeVideoRepo.recentlyAdded;
-    return _merged<VideoItem>((c) async {
-      final uid = await c.userId();
-      return c.getItems(
-        includeItemTypes: 'Movie,Series',
-        userId: uid,
-        sortBy: 'DateCreated',
-        sortOrder: 'Descending',
-      );
-    }, _videoKey);
+    return _merged<VideoItem>(
+      (c) async {
+        final uid = await c.userId();
+        return c.getItems(
+          includeItemTypes: 'Movie,Series',
+          userId: uid,
+          sortBy: 'DateCreated',
+          sortOrder: 'Descending',
+        );
+      },
+      _videoKey,
+      serverId: serverId,
+    );
   }
 
   @override
-  Future<List<VideoItem>> movies({int limit = 20, int offset = 0}) async {
+  Future<List<VideoItem>> movies({
+    int limit = 20,
+    int offset = 0,
+    String? serverId,
+  }) async {
     if (!hasCredentials) {
       return FakeVideoRepo.recentlyAdded
           .where((v) => v.type == 'Movie')
           .toList();
     }
-    return _merged<VideoItem>((c) async {
-      final uid = await c.userId();
-      return c.getItems(
-        includeItemTypes: 'Movie',
-        userId: uid,
-        sortBy: 'SortName',
-        sortOrder: 'Ascending',
-        limit: limit,
-        startIndex: offset,
-      );
-    }, _videoKey);
+    return _merged<VideoItem>(
+      (c) async {
+        final uid = await c.userId();
+        return c.getItems(
+          includeItemTypes: 'Movie',
+          userId: uid,
+          sortBy: 'SortName',
+          sortOrder: 'Ascending',
+          limit: limit,
+          startIndex: offset,
+        );
+      },
+      _videoKey,
+      serverId: serverId,
+    );
   }
 
   @override
-  Future<List<VideoItem>> series({int limit = 20, int offset = 0}) async {
+  Future<List<VideoItem>> series({
+    int limit = 20,
+    int offset = 0,
+    String? serverId,
+  }) async {
     if (!hasCredentials) {
       return FakeVideoRepo.recentlyAdded
           .where((v) => v.type == 'Series')
           .toList();
     }
-    return _merged<VideoItem>((c) async {
-      final uid = await c.userId();
-      return c.getItems(
-        includeItemTypes: 'Series',
-        userId: uid,
-        sortBy: 'SortName',
-        sortOrder: 'Ascending',
-        limit: limit,
-        startIndex: offset,
-      );
-    }, _videoKey);
+    return _merged<VideoItem>(
+      (c) async {
+        final uid = await c.userId();
+        return c.getItems(
+          includeItemTypes: 'Series',
+          userId: uid,
+          sortBy: 'SortName',
+          sortOrder: 'Ascending',
+          limit: limit,
+          startIndex: offset,
+        );
+      },
+      _videoKey,
+      serverId: serverId,
+    );
   }
 
   @override
-  Future<List<VideoItem>> search(String query) async {
+  Future<List<VideoItem>> search(String query, {String? serverId}) async {
     if (!hasCredentials) {
       final q = query.toLowerCase();
       return [
@@ -219,7 +263,10 @@ class RealVideoRepository implements VideoRepository {
     }
     final out = <VideoItem>[];
     final seen = <String>{};
-    for (final (_, client) in _clients) {
+    final clients = serverId == null
+        ? _clients
+        : _clients.where((e) => e.$1.id == serverId).toList();
+    for (final (_, client) in clients) {
       try {
         final uid = await client.userId();
         final items = await client.getItems(
@@ -234,6 +281,7 @@ class RealVideoRepository implements VideoRepository {
           if (seen.add(_videoKey(item))) out.add(item);
         }
       } on ApiException {
+        if (serverId != null) rethrow;
         continue;
       }
     }

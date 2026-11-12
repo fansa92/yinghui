@@ -1559,6 +1559,11 @@ class _FixFakeDownloadRepo extends ChangeNotifier
   bool get hasCredentials => true;
   @override
   List<Server> get usableDownloaders => [];
+
+  /// Per-page server filter (unused by this fake: it has no tasks).
+  @override
+  String? serverFilter;
+
   @override
   List<DownloadTask> get tasks => [];
   @override
@@ -2066,7 +2071,9 @@ class _FixFakeMusicRepo implements MusicRepository {
   );
 
   @override
-  Future<({List<Track> songs, List<Album> albums})> starred() async => (
+  Future<({List<Track> songs, List<Album> albums})> starred({
+    String? serverId,
+  }) async => (
     songs: _starredTracks
         .map(
           (id) => Track(

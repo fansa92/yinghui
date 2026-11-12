@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/app_state.dart';
+import '../../core/models/server.dart';
 import '../../core/settings.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/desktop_layout.dart';
+import '../../core/widgets/server_selector.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/track.dart';
 import '../../data/repositories/music_repository.dart';
@@ -18,6 +23,10 @@ import 'track_list_page.dart';
 /// through [MusicRepository]; with no Navidrome credentials it shows an
 /// explicit empty state instead of silently presenting demo data.
 /// The grid is 2 columns on phones, 4 on desktop (>= 1024 wide).
+///
+/// A server selector sits at the top: "全部" (all Navidrome servers
+/// merged, the default) or one server. The selection is per page and
+/// persisted in [AppStateStore]; it only ever filters this page.
 class MusicPage extends StatefulWidget {
   const MusicPage({
     super.key,
@@ -25,12 +34,17 @@ class MusicPage extends StatefulWidget {
     required this.player,
     required this.store,
     required this.settings,
+    this.appState,
   });
 
   final MusicRepository repo;
   final PlayerService player;
   final ServerStore store;
   final SettingsService settings;
+
+  /// Optional global state: this page's server selection is restored
+  /// from it on open and saved back on every change.
+  final AppStateStore? appState;
 
   @override
   State<MusicPage> createState() => _MusicPageState();
@@ -62,10 +76,34 @@ class _MusicPageState extends State<MusicPage> {
   /// the empty state until the next tab switch.
   bool _hadCredentials = false;
 
+  /// This page's server selection: a server id, or null for "全部".
+  /// Restored from [AppStateStore] in initState; [effectiveServerId]
+  /// sanitises it against the live server list.
+  String? _serverId;
+
+  /// Navidrome server ids seen at the last store change, so a server
+  /// added or removed while this page is open updates the selector.
+  Set<String> _knownTypeIds = {};
+
+  List<Server> get _typeServers => widget.store.servers
+      .where((s) => s.type == ServerType.navidrome)
+      .toList();
+
+  /// The selection to actually query: null when nothing is selected
+  /// or when the selected server no longer exists (deleted) — the
+  /// page then falls back to "全部" instead of querying a ghost.
+  String? get _effectiveServerId {
+    final id = _serverId;
+    if (id == null) return null;
+    return _typeServers.any((s) => s.id == id) ? id : null;
+  }
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _serverId = widget.appState?.musicServerId;
+    _knownTypeIds = _typeServers.map((s) => s.id).toSet();
     _hadCredentials = widget.repo.hasCredentials;
     widget.store.addListener(_onStoreChanged);
     if (_hadCredentials) {
@@ -83,6 +121,31 @@ class _MusicPageState extends State<MusicPage> {
       _loadInitial();
     }
     _hadCredentials = now;
+    // A server added or removed while this page is open must update
+    // the selector; a deleted selected server falls back to "全部"
+    // and the stale persisted value is cleared.
+    final ids = _typeServers.map((s) => s.id).toSet();
+    if (ids.length != _knownTypeIds.length || !ids.containsAll(_knownTypeIds)) {
+      _knownTypeIds = ids;
+      if (_serverId != null && !ids.contains(_serverId)) {
+        _serverId = null;
+        unawaited(widget.appState?.setMusicServerId(null));
+      }
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Switch this page to one server (or null for "全部") and reload.
+  /// The search is cleared: its results belong to the old selection.
+  void _selectServer(String? id) {
+    if (id == _effectiveServerId) return;
+    setState(() {
+      _serverId = id;
+      _searchResult = null;
+      _searchController.clear();
+    });
+    unawaited(widget.appState?.setMusicServerId(id));
+    _loadInitial();
   }
 
   @override
@@ -108,10 +171,15 @@ class _MusicPageState extends State<MusicPage> {
       _error = null;
     });
     try {
-      final albums = await widget.repo.albums(size: _pageSize);
-      final artists = await widget.repo.artists();
-      final playlists = await widget.repo.playlists();
-      final starred = await widget.repo.starred();
+      final albums = await widget.repo.albums(
+        size: _pageSize,
+        serverId: _effectiveServerId,
+      );
+      final artists = await widget.repo.artists(serverId: _effectiveServerId);
+      final playlists = await widget.repo.playlists(
+        serverId: _effectiveServerId,
+      );
+      final starred = await widget.repo.starred(serverId: _effectiveServerId);
       if (!mounted) return;
       setState(() {
         _albums = albums;
@@ -137,6 +205,7 @@ class _MusicPageState extends State<MusicPage> {
       final more = await widget.repo.albums(
         size: _pageSize,
         offset: _albums.length,
+        serverId: _effectiveServerId,
       );
       if (!mounted) return;
       setState(() {
@@ -159,7 +228,7 @@ class _MusicPageState extends State<MusicPage> {
     widget.settings.recordSearch(q);
     setState(() => _loading = true);
     try {
-      final result = await widget.repo.search(q);
+      final result = await widget.repo.search(q, serverId: _effectiveServerId);
       if (!mounted) return;
       setState(() {
         _searchResult = result;
@@ -186,6 +255,15 @@ class _MusicPageState extends State<MusicPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: ServerSelector(
+            servers: _typeServers,
+            selectedId: _effectiveServerId,
+            onSelected: _selectServer,
+            onManageServers: _openServers,
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: TextField(

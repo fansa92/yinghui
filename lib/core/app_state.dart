@@ -16,7 +16,9 @@ import '../data/models/video_item.dart';
 /// - last played music track + queue + position (restored into the
 ///   mini-player on boot, never auto-played);
 /// - last played video + position (continue-watching resume);
-/// - download list filters (source + status).
+/// - download list filters (source + status);
+/// - per-page server selection (Music / Video / Downloads): a server
+///   id, or null for "全部" (all servers merged).
 class AppStateStore extends ChangeNotifier {
   AppStateStore({this._prefs});
 
@@ -27,12 +29,18 @@ class AppStateStore extends ChangeNotifier {
   static const _kLastVideo = 'yinghui_last_video';
   static const _kDownloadSource = 'yinghui_download_source';
   static const _kDownloadStatus = 'yinghui_download_status';
+  static const _kMusicServer = 'yinghui_music_server_id';
+  static const _kVideoServer = 'yinghui_video_server_id';
+  static const _kDownloadsServer = 'yinghui_downloads_server_id';
 
   int _lastTab = 0;
   SavedMusicState? _lastMusic;
   SavedVideoState? _lastVideo;
   String? _downloadSource;
   String? _downloadStatus;
+  String? _musicServerId;
+  String? _videoServerId;
+  String? _downloadsServerId;
 
   /// True once [load] has read the persisted values.
   bool _loaded = false;
@@ -43,6 +51,11 @@ class AppStateStore extends ChangeNotifier {
   SavedVideoState? get lastVideo => _lastVideo;
   String? get downloadSourceFilter => _downloadSource;
   String? get downloadStatusFilter => _downloadStatus;
+
+  /// Per-page server selection: a server id, or null for "全部".
+  String? get musicServerId => _musicServerId;
+  String? get videoServerId => _videoServerId;
+  String? get downloadsServerId => _downloadsServerId;
 
   Future<SharedPreferences> _ensurePrefs() async =>
       _prefs ??= await SharedPreferences.getInstance();
@@ -56,6 +69,9 @@ class AppStateStore extends ChangeNotifier {
     _lastVideo = videoJson == null ? null : SavedVideoState.fromJson(videoJson);
     _downloadSource = p.getString(_kDownloadSource);
     _downloadStatus = p.getString(_kDownloadStatus);
+    _musicServerId = p.getString(_kMusicServer);
+    _videoServerId = p.getString(_kVideoServer);
+    _downloadsServerId = p.getString(_kDownloadsServer);
     _loaded = true;
     notifyListeners();
   }
@@ -109,6 +125,33 @@ class AppStateStore extends ChangeNotifier {
       await p.remove(_kDownloadStatus);
     } else {
       await p.setString(_kDownloadStatus, status);
+    }
+    notifyListeners();
+  }
+
+  /// Per-page server selection: null means "全部" (all servers merged)
+  /// and removes the key; a server id persists it. One setter per page
+  /// so the selections stay independent.
+  Future<void> setMusicServerId(String? id) =>
+      _setServerId(_kMusicServer, id, (v) => _musicServerId = v);
+
+  Future<void> setVideoServerId(String? id) =>
+      _setServerId(_kVideoServer, id, (v) => _videoServerId = v);
+
+  Future<void> setDownloadsServerId(String? id) =>
+      _setServerId(_kDownloadsServer, id, (v) => _downloadsServerId = v);
+
+  Future<void> _setServerId(
+    String key,
+    String? id,
+    void Function(String?) assign,
+  ) async {
+    assign(id);
+    final p = await _ensurePrefs();
+    if (id == null) {
+      await p.remove(key);
+    } else {
+      await p.setString(key, id);
     }
     notifyListeners();
   }

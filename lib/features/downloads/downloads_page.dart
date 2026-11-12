@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_state.dart';
 import '../../core/settings.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/server_selector.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/download_task.dart';
 import '../../data/repositories/download_repository.dart';
@@ -18,6 +19,12 @@ import 'download_detail_page.dart';
 /// downloader server, merged); with no usable downloader the page shows
 /// an explicit empty state instead of silently presenting demo data.
 /// Progress bars are amber — green is reserved for playback progress.
+///
+/// A server selector sits at the top: "全部" (all downloaders merged,
+/// the default) or one downloader. The selection is per page and
+/// persisted in [AppStateStore]; it only ever filters this page — the
+/// polling timer and every action-triggered refresh honour it through
+/// the repository's [DownloadRepository.serverFilter].
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
     super.key,
@@ -45,6 +52,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
   int _pollingInterval = 5;
   bool _hadCredentials = false;
 
+  /// This page's server selection: a server id, or null for "全部".
+  /// Restored from [AppStateStore] in initState; [effectiveServerId]
+  /// sanitises it against the live usable downloaders.
+  String? _serverId;
+
+  /// Usable downloader ids seen at the last store change, so a server
+  /// added or removed while this page is open updates the selector.
+  Set<String> _knownDownloaderIds = {};
+
+  /// The selection to actually query: null when nothing is selected
+  /// or when the selected server no longer exists (deleted) — the
+  /// page then falls back to "全部" instead of querying a ghost.
+  String? get _effectiveServerId {
+    final id = _serverId;
+    if (id == null) return null;
+    return widget.repo.usableDownloaders.any((s) => s.id == id) ? id : null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +88,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
           .where((s) => s.name == statusName)
           .firstOrNull;
     }
+    // Restore this page's server selection and apply it to the repo
+    // before the first refresh, so the first poll already queries
+    // only the selected server.
+    _serverId = widget.appState?.downloadsServerId;
+    _knownDownloaderIds = widget.repo.usableDownloaders
+        .map((s) => s.id)
+        .toSet();
+    widget.repo.serverFilter = _effectiveServerId;
     widget.settings.addListener(_onSettingsChanged);
     widget.store.addListener(_onStoreChanged);
     widget.repo.refresh();
@@ -89,6 +122,37 @@ class _DownloadsPageState extends State<DownloadsPage> {
       widget.repo.refresh();
     }
     _hadCredentials = now;
+    // A downloader added or removed while this page is open must
+    // update the selector; a deleted selected server falls back to
+    // "全部" and the stale persisted value is cleared. The store may
+    // also finish loading after initState, so the persisted selection
+    // is (re-)applied to the repo whenever the list changes.
+    final ids = widget.repo.usableDownloaders.map((s) => s.id).toSet();
+    if (ids.length != _knownDownloaderIds.length ||
+        !ids.containsAll(_knownDownloaderIds)) {
+      _knownDownloaderIds = ids;
+      if (_serverId != null && !ids.contains(_serverId)) {
+        _serverId = null;
+        unawaited(widget.appState?.setDownloadsServerId(null));
+      }
+      if (mounted) setState(() {});
+    }
+    final effective = _effectiveServerId;
+    if (widget.repo.serverFilter != effective) {
+      widget.repo.serverFilter = effective;
+      widget.repo.refresh();
+    }
+  }
+
+  /// Switch this page to one downloader (or null for "全部"). The
+  /// polling timer keeps running; it calls refresh(), which honours
+  /// the new filter from the next tick.
+  void _selectServer(String? id) {
+    if (id == _effectiveServerId) return;
+    setState(() => _serverId = id);
+    unawaited(widget.appState?.setDownloadsServerId(id));
+    widget.repo.serverFilter = id;
+    widget.repo.refresh();
   }
 
   @override
@@ -96,6 +160,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
     widget.settings.removeListener(_onSettingsChanged);
     widget.store.removeListener(_onStoreChanged);
     widget.repo.stopPolling();
+    // The filter belongs to this page, not the shared repo: if a
+    // filter was active, restore the merged queue so Home's
+    // active-downloads row is not filtered by a selection made here.
+    // Skipped when nothing was filtered — no pointless refresh on
+    // every tab switch (and no in-flight request at teardown).
+    if (widget.repo.serverFilter != null) {
+      widget.repo.serverFilter = null;
+      unawaited(widget.repo.refresh());
+    }
     super.dispose();
   }
 
@@ -125,6 +198,23 @@ class _DownloadsPageState extends State<DownloadsPage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.repo.hasCredentials)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: ServerSelector(
+                  servers: widget.repo.usableDownloaders,
+                  selectedId: _effectiveServerId,
+                  onSelected: _selectServer,
+                  showType: true,
+                  onManageServers: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ServersPage(store: widget.store),
+                      ),
+                    );
+                  },
+                ),
+              ),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

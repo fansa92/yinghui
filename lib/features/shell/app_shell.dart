@@ -106,6 +106,7 @@ class _AppShellState extends State<AppShell> {
         player: widget.player,
         store: widget.store,
         settings: widget.settings,
+        appState: widget.appState,
       ),
       VideoPage(
         repo: widget.videoRepo,

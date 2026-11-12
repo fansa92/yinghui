@@ -22,6 +22,15 @@ abstract class DownloadRepository {
   /// Usable downloader servers, for the Add sheet's picker.
   List<Server> get usableDownloaders;
 
+  /// Server filter for [refresh] — and everything that triggers it
+  /// (the polling timer, pause/resume/delete/add). Null (the default)
+  /// refreshes all usable downloaders; a server id refreshes that
+  /// server only. The Downloads page sets this from its per-page
+  /// selector and clears it on dispose, so the filter never leaks
+  /// into Home's active-downloads row, which reads the same repo.
+  String? get serverFilter;
+  set serverFilter(String? value);
+
   /// Current unified queue, downloading first, then by progress.
   List<DownloadTask> get tasks;
 
@@ -123,6 +132,11 @@ class RealDownloadRepository extends ChangeNotifier
   final Map<String, String> _errors = {};
   bool _isLoading = false;
   Timer? _timer;
+
+  /// Per-page server filter (see the [DownloadRepository] doc): the
+  /// Downloads page sets it from its selector; null = all servers.
+  @override
+  String? serverFilter;
 
   static bool _isDownloader(ServerType type) =>
       type == ServerType.qbittorrent ||
@@ -237,11 +251,17 @@ class RealDownloadRepository extends ChangeNotifier
     }
   }
 
-  Future<List<DownloadTask>> _persistedNotLive(Set<String> liveIds) async {
+  Future<List<DownloadTask>> _persistedNotLive(
+    Set<String> liveIds, {
+    String? serverId,
+  }) async {
     final rows = await _db.select(_db.downloadTasks).get();
     final out = <DownloadTask>[];
     for (final row in rows) {
       if (liveIds.contains(row.id)) continue;
+      // A filtered refresh must not resurrect other servers' stale
+      // rows: only rows of the selected server stay visible.
+      if (serverId != null && row.serverId != serverId) continue;
       final source = DownloadSource.values.firstWhere(
         (s) => s.name == row.source,
         orElse: () => DownloadSource.qbittorrent,
@@ -347,7 +367,13 @@ class RealDownloadRepository extends ChangeNotifier
     notifyListeners();
     final live = <DownloadTask>[];
     _errors.clear();
-    for (final server in _usableDownloaders) {
+    // With a server filter only that server is queried at all — the
+    // others are not even contacted, and only the selected server's
+    // error (if any) is recorded.
+    final serversToRefresh = serverFilter == null
+        ? _usableDownloaders
+        : _usableDownloaders.where((s) => s.id == serverFilter).toList();
+    for (final server in serversToRefresh) {
       try {
         live.addAll(await _fetchFor(server));
       } on ApiException catch (e) {
@@ -357,7 +383,7 @@ class RealDownloadRepository extends ChangeNotifier
     try {
       await _upsertLive(live);
       final liveIds = live.map((t) => t.storageId).toSet();
-      live.addAll(await _persistedNotLive(liveIds));
+      live.addAll(await _persistedNotLive(liveIds, serverId: serverFilter));
       // Live tasks never carry sourceInput from the server; restore
       // the persisted value so the detail page keeps working.
       final withInput = await _withPersistedInput(live);
