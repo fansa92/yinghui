@@ -379,6 +379,20 @@ class _ServersPageState extends State<ServersPage> {
     Server? server,
   }) async {
     final effectiveType = server?.type ?? type!;
+    // Per-type auth fields. aria2 has no username — its only
+    // credential is the RPC secret (--rpc-secret), sent as
+    // `token:SECRET` on the first JSON-RPC param; asking for a
+    // username there was meaningless. Transmission uses HTTP Basic
+    // auth, so username + password are the right fields.
+    final showUsername = effectiveType != ServerType.aria2;
+    final secretLabel = switch (effectiveType) {
+      ServerType.aria2 => 'RPC 密钥（可选）',
+      ServerType.transmission => '密码',
+      _ => '密码 / Token / 密钥',
+    };
+    final secretHint = effectiveType == ServerType.aria2
+        ? '没设 --rpc-secret 就留空'
+        : null;
     final nameController = TextEditingController(text: server?.name ?? '');
     final hostController = TextEditingController(text: server?.host ?? '');
     final portController = TextEditingController(
@@ -447,15 +461,17 @@ class _ServersPageState extends State<ServersPage> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(labelText: '端口'),
                   ),
-                  TextField(
-                    controller: userController,
-                    decoration: const InputDecoration(labelText: '用户名'),
-                  ),
+                  if (showUsername)
+                    TextField(
+                      controller: userController,
+                      decoration: const InputDecoration(labelText: '用户名'),
+                    ),
                   TextField(
                     controller: secretController,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: '密码 / Token / 密钥',
+                    decoration: InputDecoration(
+                      labelText: secretLabel,
+                      helperText: secretHint,
                     ),
                   ),
                   const SizedBox(height: 12),

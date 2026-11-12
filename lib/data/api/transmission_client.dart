@@ -128,11 +128,13 @@ class TransmissionClient {
   }
 
   /// Structured connectivity check: session_get ok, otherwise
-  /// unreachable (auth failures surface as unreachable here — a
-  /// Transmission server does not expose a public probe). The
-  /// `session_get` result carries the daemon `version`, which is
-  /// returned when present; a missing or non-string version is not a
-  /// failure — the check is still ok, just without a version.
+  /// unreachable — except HTTP 401. Transmission answers a missing
+  /// or wrong Basic-auth credential with 401: the server is
+  /// reachable, the credentials are wrong, so this is needsAuth,
+  /// not unreachable. The `session_get` result carries the daemon
+  /// `version`, which is returned when present; a missing or
+  /// non-string version is not a failure — the check is still ok,
+  /// just without a version.
   Future<ConnectionResult> testConnectionResult() async {
     try {
       final args = await rpc('session_get', {
@@ -143,6 +145,11 @@ class TransmissionClient {
         serverVersion: version is String && version.isNotEmpty ? version : null,
       );
     } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        return ConnectionResult.needsAuth(
+          message: server.username.isEmpty ? '需要登录' : '用户名或密码错误',
+        );
+      }
       return ConnectionResult.unreachable(message: e.message);
     }
   }

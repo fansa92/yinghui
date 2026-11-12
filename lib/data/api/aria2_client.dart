@@ -40,9 +40,14 @@ class Aria2Client {
 
   /// The param list for an aria2 call: the `token:` secret first when one
   /// is configured, then the method's own params. Pure and unit-testable.
+  /// A secret pasted with its `token:` prefix already on it is used
+  /// as-is instead of being doubled into `token:token:…`.
   List<dynamic> buildParams([List<dynamic> params = const []]) {
     if (server.token.isEmpty) return params;
-    return ['token:${server.token}', ...params];
+    final secret = server.token.startsWith('token:')
+        ? server.token
+        : 'token:${server.token}';
+    return [secret, ...params];
   }
 
   /// One JSON-RPC call. Returns `result`, or throws [ApiException] on a
@@ -86,7 +91,10 @@ class Aria2Client {
   }
 
   /// Structured connectivity check: getVersion ok, otherwise
-  /// unreachable (a wrong secret surfaces as an RPC error here).
+  /// unreachable — except a wrong/missing secret. aria2 answers that
+  /// with the JSON-RPC error `{"code":1,"message":"Unauthorized"}`
+  /// (aria2 docs, troubleshooting): the server is reachable, the
+  /// secret is wrong, so this is needsAuth, not unreachable.
   Future<ConnectionResult> testConnectionResult() async {
     try {
       final result = await rpc('aria2.getVersion');
@@ -95,6 +103,11 @@ class Aria2Client {
       }
       return ConnectionResult.unreachable(message: 'aria2 返回异常');
     } on ApiException catch (e) {
+      if (e.message.contains('Unauthorized')) {
+        return ConnectionResult.needsAuth(
+          message: server.token.isEmpty ? '需要 RPC 密钥' : 'RPC 密钥错误',
+        );
+      }
       return ConnectionResult.unreachable(message: e.message);
     }
   }
