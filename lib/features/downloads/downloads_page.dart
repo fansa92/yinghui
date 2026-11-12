@@ -32,6 +32,7 @@ class DownloadsPage extends StatefulWidget {
     required this.store,
     required this.settings,
     this.appState,
+    this.isActive = true,
   });
 
   final DownloadRepository repo;
@@ -41,6 +42,13 @@ class DownloadsPage extends StatefulWidget {
   /// Optional global state: the source/status filters are restored
   /// from it on open and saved back on every change.
   final AppStateStore? appState;
+
+  /// Whether this tab is currently visible. The shell keeps every
+  /// visited tab mounted (IndexedStack), so the page only polls the
+  /// queue while it is the active tab; when it becomes inactive it
+  /// stops polling and hands the shared repo back to the merged view
+  /// (Home's "进行中的下载" row reads the same repo).
+  final bool isActive;
 
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
@@ -98,8 +106,46 @@ class _DownloadsPageState extends State<DownloadsPage> {
     widget.repo.serverFilter = _effectiveServerId;
     widget.settings.addListener(_onSettingsChanged);
     widget.store.addListener(_onStoreChanged);
-    widget.repo.refresh();
-    widget.repo.startPolling(intervalSeconds: _pollingInterval);
+    // The first visit loads the queue and starts the live poll;
+    // returning to this tab later does NOT refresh — only the timer
+    // (while visible) and pull-to-refresh reload. Deferred past the
+    // first frame: refresh() notifies synchronously (isLoading), and
+    // notifying while the shell is still building the other
+    // kept-alive tabs throws.
+    if (widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !widget.isActive) return;
+        widget.repo.refresh();
+        widget.repo.startPolling(intervalSeconds: _pollingInterval);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant DownloadsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive == oldWidget.isActive) return;
+    if (widget.isActive) {
+      // Back on this tab: re-apply the page's server filter and
+      // restart the live poll. startPolling does not fetch
+      // immediately — the next tick refreshes.
+      widget.repo.serverFilter = _effectiveServerId;
+      widget.repo.startPolling(intervalSeconds: _pollingInterval);
+    } else {
+      // Leaving this tab: stop polling and hand the shared repo back
+      // to the merged view, so Home's "进行中的下载" row is not
+      // filtered by this page's selector. This one refresh restores
+      // the merged queue; it does not reload this page. Deferred
+      // past the frame for the same reason as the initial load (see
+      // initState): refresh() notifies synchronously.
+      widget.repo.stopPolling();
+      if (widget.repo.serverFilter != null) {
+        widget.repo.serverFilter = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.repo.refresh();
+        });
+      }
+    }
   }
 
   /// The polling interval is a live setting: changing it in Settings
@@ -109,7 +155,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final interval = widget.settings.pollingIntervalSeconds;
     if (interval != _pollingInterval) {
       _pollingInterval = interval;
-      widget.repo.startPolling(intervalSeconds: interval);
+      if (widget.isActive) {
+        widget.repo.startPolling(intervalSeconds: interval);
+      }
     }
   }
 
@@ -181,13 +229,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  List<DownloadTask> _filtered(List<DownloadTask> tasks) => tasks
-      .where(
-        (t) =>
-            (_sourceFilter == null || t.source == _sourceFilter) &&
-            (_statusFilter == null || t.status == _statusFilter),
-      )
-      .toList();
+  // The repo is filtered server-side on refresh; the display also
+  // applies this page's server selection, so the list stays correct
+  // in the window between a selection change and the next poll.
+  List<DownloadTask> _filtered(List<DownloadTask> tasks) {
+    final serverId = _effectiveServerId;
+    return tasks
+        .where(
+          (t) =>
+              (serverId == null || t.serverId == serverId) &&
+              (_sourceFilter == null || t.source == _sourceFilter) &&
+              (_statusFilter == null || t.status == _statusFilter),
+        )
+        .toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -276,16 +331,31 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       },
                     )
                   : tasks.isEmpty
-                  ? EmptyView(
-                      icon: Icons.download_outlined,
-                      title: '没有下载任务',
-                      subtitle: widget.repo.isLoading
-                          ? '加载中…'
-                          : '点 + 添加磁力链接或种子链接。',
+                  ? RefreshIndicator(
+                      onRefresh: widget.repo.refresh,
+                      child: ListView(
+                        // The list is empty, so without this the
+                        // overscroll the pull gesture needs is
+                        // impossible and pull-to-refresh never fires.
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.5,
+                            child: EmptyView(
+                              icon: Icons.download_outlined,
+                              title: '没有下载任务',
+                              subtitle: widget.repo.isLoading
+                                  ? '加载中…'
+                                  : '点 + 添加磁力链接或种子链接。',
+                            ),
+                          ),
+                        ],
+                      ),
                     )
                   : RefreshIndicator(
                       onRefresh: widget.repo.refresh,
                       child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         itemCount: tasks.length,
                         itemBuilder: (context, i) => _taskCard(tasks[i]),

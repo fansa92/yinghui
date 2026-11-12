@@ -52,6 +52,11 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+  // Tabs build lazily: a tab's page is only created the first time the
+  // user visits it, and stays mounted (IndexedStack) afterwards, so
+  // switching tabs never rebuilds a page and never refetches its data.
+  // Only a pull-to-refresh on the page itself reloads it.
+  final Set<int> _seen = {0};
 
   /// Set once the user picks a tab: after that, a late app-state
   /// load must not yank the tab back to the saved one.
@@ -63,6 +68,8 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _index = widget.appState?.lastTab ?? 0;
+    if (_index < 0 || _index > 3) _index = 0;
+    _seen.add(_index);
     widget.appState?.addListener(_onAppStateChanged);
   }
 
@@ -77,13 +84,19 @@ class _AppShellState extends State<AppShell> {
   void _onAppStateChanged() {
     final saved = widget.appState?.lastTab ?? 0;
     if (!_userNavigated && saved != _index) {
-      setState(() => _index = saved);
+      setState(() {
+        _index = saved;
+        _seen.add(saved);
+      });
     }
   }
 
   void _selectTab(int i) {
     _userNavigated = true;
-    setState(() => _index = i);
+    setState(() {
+      _index = i;
+      _seen.add(i);
+    });
     unawaited(widget.appState?.setLastTab(i));
   }
 
@@ -120,14 +133,26 @@ class _AppShellState extends State<AppShell> {
         store: widget.store,
         settings: widget.settings,
         appState: widget.appState,
+        isActive: _index == 3,
       ),
     ];
     // The mini-player is scoped to music pages only (the Music tab
     // here; AlbumDetailPage pins its own copy): on Home / Video /
     // Downloads it would sit above content it has nothing to do with.
+    // IndexedStack keeps every visited tab mounted, so switching tabs
+    // never rebuilds a page and never refetches its data; a tab that
+    // has never been visited is a placeholder until the first visit.
     final body = Column(
       children: [
-        Expanded(child: pages[_index]),
+        Expanded(
+          child: IndexedStack(
+            index: _index,
+            children: [
+              for (var i = 0; i < pages.length; i++)
+                _seen.contains(i) ? pages[i] : const SizedBox.shrink(),
+            ],
+          ),
+        ),
         if (_index == 1)
           MiniPlayer(
             player: widget.player,

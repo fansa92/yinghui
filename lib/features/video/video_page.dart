@@ -289,6 +289,7 @@ class _VideoPageState extends State<VideoPage> {
         onRefresh: _loadInitial,
         child: ListView(
           controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
             Padding(

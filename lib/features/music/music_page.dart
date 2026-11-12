@@ -345,56 +345,61 @@ class _MusicPageState extends State<MusicPage> {
         result.artists.isEmpty) {
       return const Center(child: Text('没有找到结果。'));
     }
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      children: [
-        if (result.songs.isNotEmpty) ...[
-          const _SectionTitle('歌曲'),
-          ...result.songs.map(
-            (t) => ListTile(
-              leading: CoverImage(coverUrl: t.coverUrl),
-              title: Text(t.title),
-              subtitle: Text('${t.artist} · ${t.album}'),
-              trailing: Text(t.durationText),
-              onTap: () => widget.player.playQueue(
-                result.songs,
-                startIndex: result.songs.indexOf(t),
+    return RefreshIndicator(
+      // Pull-to-refresh re-runs the current search.
+      onRefresh: () => _search(_searchController.text),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          if (result.songs.isNotEmpty) ...[
+            const _SectionTitle('歌曲'),
+            ...result.songs.map(
+              (t) => ListTile(
+                leading: CoverImage(coverUrl: t.coverUrl),
+                title: Text(t.title),
+                subtitle: Text('${t.artist} · ${t.album}'),
+                trailing: Text(t.durationText),
+                onTap: () => widget.player.playQueue(
+                  result.songs,
+                  startIndex: result.songs.indexOf(t),
+                ),
               ),
             ),
-          ),
-        ],
-        if (result.albums.isNotEmpty) ...[
-          const _SectionTitle('专辑'),
-          ...result.albums.map(
-            (a) => ListTile(
-              leading: CoverImage(coverUrl: a.coverUrl),
-              title: Text(a.title),
-              subtitle: Text('${a.artist} · ${a.year ?? ''}'),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => AlbumDetailPage(
-                    album: a,
-                    repo: widget.repo,
-                    player: widget.player,
-                    settings: widget.settings,
+          ],
+          if (result.albums.isNotEmpty) ...[
+            const _SectionTitle('专辑'),
+            ...result.albums.map(
+              (a) => ListTile(
+                leading: CoverImage(coverUrl: a.coverUrl),
+                title: Text(a.title),
+                subtitle: Text('${a.artist} · ${a.year ?? ''}'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => AlbumDetailPage(
+                      album: a,
+                      repo: widget.repo,
+                      player: widget.player,
+                      settings: widget.settings,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
-        if (result.artists.isNotEmpty) ...[
-          const _SectionTitle('艺人'),
-          ...result.artists.map(
-            (a) => ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.person)),
-              title: Text(a.name),
-              subtitle: Text('${a.albumCount} 张专辑'),
+          ],
+          if (result.artists.isNotEmpty) ...[
+            const _SectionTitle('艺人'),
+            ...result.artists.map(
+              (a) => ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person)),
+                title: Text(a.name),
+                subtitle: Text('${a.albumCount} 张专辑'),
+              ),
             ),
-          ),
+          ],
+          const SizedBox(height: 16),
         ],
-        const SizedBox(height: 16),
-      ],
+      ),
     );
   }
 
@@ -402,108 +407,147 @@ class _MusicPageState extends State<MusicPage> {
     switch (_filter) {
       case '艺人':
         if (_artists.isEmpty) {
-          return const Center(child: Text('还没有艺人。'));
+          return RefreshIndicator(
+            onRefresh: _loadInitial,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Center(child: Text('还没有艺人。')),
+              ],
+            ),
+          );
         }
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: _artists.length,
-          itemBuilder: (context, i) {
-            final a = _artists[i];
-            return ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.person)),
-              title: Text(a.name),
-              subtitle: Text('${a.albumCount} 张专辑 · ${a.sourceLabel}'),
-            );
-          },
+        return RefreshIndicator(
+          onRefresh: _loadInitial,
+          child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _artists.length,
+            itemBuilder: (context, i) {
+              final a = _artists[i];
+              return ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person)),
+                title: Text(a.name),
+                subtitle: Text('${a.albumCount} 张专辑 · ${a.sourceLabel}'),
+              );
+            },
+          ),
         );
       case '歌单':
         if (_playlists.isEmpty) {
-          return const Center(child: Text('还没有歌单。'));
+          return RefreshIndicator(
+            onRefresh: _loadInitial,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Center(child: Text('还没有歌单。')),
+              ],
+            ),
+          );
         }
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: _playlists.length,
-          itemBuilder: (context, i) {
-            final p = _playlists[i];
-            return ListTile(
-              leading: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: YingHuiTheme.primaryGreen.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.queue_music,
-                  color: YingHuiTheme.primaryGreen,
-                ),
-              ),
-              title: Text(p.name),
-              subtitle: Text('${p.songCount} 首歌 · ${p.sourceLabel}'),
-              onTap: () async {
-                final tracks = await widget.repo.playlistTracks(
-                  p.id,
-                  p.serverId,
-                );
-                if (!context.mounted) return;
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => TrackListPage(
-                      title: p.name,
-                      tracks: tracks,
-                      repo: widget.repo,
-                      player: widget.player,
-                    ),
+        return RefreshIndicator(
+          onRefresh: _loadInitial,
+          child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _playlists.length,
+            itemBuilder: (context, i) {
+              final p = _playlists[i];
+              return ListTile(
+                leading: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: YingHuiTheme.primaryGreen.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                );
-              },
-            );
-          },
+                  child: const Icon(
+                    Icons.queue_music,
+                    color: YingHuiTheme.primaryGreen,
+                  ),
+                ),
+                title: Text(p.name),
+                subtitle: Text('${p.songCount} 首歌 · ${p.sourceLabel}'),
+                onTap: () async {
+                  final tracks = await widget.repo.playlistTracks(
+                    p.id,
+                    p.serverId,
+                  );
+                  if (!context.mounted) return;
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TrackListPage(
+                        title: p.name,
+                        tracks: tracks,
+                        repo: widget.repo,
+                        player: widget.player,
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         );
       case '收藏':
         if (_starredSongs.isEmpty && _starredAlbums.isEmpty) {
-          return const Center(child: Text('还没有收藏。'));
+          return RefreshIndicator(
+            onRefresh: _loadInitial,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Center(child: Text('还没有收藏。')),
+              ],
+            ),
+          );
         }
-        return ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          children: [
-            if (_starredAlbums.isNotEmpty) ...[
-              const _SectionTitle('收藏的专辑'),
-              ..._starredAlbums.map(
-                (a) => ListTile(
-                  leading: CoverImage(coverUrl: a.coverUrl),
-                  title: Text(a.title),
-                  subtitle: Text(a.artist),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => AlbumDetailPage(
-                        album: a,
-                        repo: widget.repo,
-                        player: widget.player,
-                        settings: widget.settings,
+        return RefreshIndicator(
+          onRefresh: _loadInitial,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              if (_starredAlbums.isNotEmpty) ...[
+                const _SectionTitle('收藏的专辑'),
+                ..._starredAlbums.map(
+                  (a) => ListTile(
+                    leading: CoverImage(coverUrl: a.coverUrl),
+                    title: Text(a.title),
+                    subtitle: Text(a.artist),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => AlbumDetailPage(
+                          album: a,
+                          repo: widget.repo,
+                          player: widget.player,
+                          settings: widget.settings,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
-            if (_starredSongs.isNotEmpty) ...[
-              const _SectionTitle('收藏的歌曲'),
-              ..._starredSongs.map(
-                (t) => ListTile(
-                  leading: CoverImage(coverUrl: t.coverUrl),
-                  title: Text(t.title),
-                  subtitle: Text('${t.artist} · ${t.album}'),
-                  trailing: Text(t.durationText),
-                  onTap: () => widget.player.playQueue(
-                    _starredSongs,
-                    startIndex: _starredSongs.indexOf(t),
+              ],
+              if (_starredSongs.isNotEmpty) ...[
+                const _SectionTitle('收藏的歌曲'),
+                ..._starredSongs.map(
+                  (t) => ListTile(
+                    leading: CoverImage(coverUrl: t.coverUrl),
+                    title: Text(t.title),
+                    subtitle: Text('${t.artist} · ${t.album}'),
+                    trailing: Text(t.durationText),
+                    onTap: () => widget.player.playQueue(
+                      _starredSongs,
+                      startIndex: _starredSongs.indexOf(t),
+                    ),
                   ),
                 ),
-              ),
+              ],
+              const SizedBox(height: 16),
             ],
-            const SizedBox(height: 16),
-          ],
+          ),
         );
       case '专辑':
       default:
@@ -511,6 +555,7 @@ class _MusicPageState extends State<MusicPage> {
           return RefreshIndicator(
             onRefresh: _loadInitial,
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               children: const [
                 SizedBox(height: 120),
                 Center(child: Text('还没有专辑。')),
@@ -522,6 +567,7 @@ class _MusicPageState extends State<MusicPage> {
           onRefresh: _loadInitial,
           child: GridView.builder(
             controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: gridColumnsForWidth(
