@@ -228,7 +228,7 @@ Dio _mockQbDio(String serverId, List<String> hit) {
     );
 }
 
-/// Mock Transmission Dio: every RPC call answers torrent-get with one
+/// Mock Transmission Dio: every RPC call answers torrent_get with one
 /// task (or an error when [throwOn]).
 Dio _mockTransmissionDio(
   String serverId,
@@ -252,20 +252,21 @@ Dio _mockTransmissionDio(
           }
           handler.resolve(
             _ok(options, {
-              'result': 'success',
-              'arguments': {
+              'jsonrpc': '2.0',
+              'id': 1,
+              'result': {
                 'torrents': [
                   {
                     'id': 1,
                     'name': 'TR File $serverId',
                     'status': 4,
-                    'percentDone': 0.3,
-                    'rateDownload': 2000,
-                    'totalSize': 8000,
-                    'downloadedEver': 2400,
+                    'percent_done': 0.3,
+                    'rate_download': 2000,
+                    'total_size': 8000,
+                    'downloaded_ever': 2400,
                     'eta': 30,
-                    'downloadDir': '/dl',
-                    'hashString': 'abc',
+                    'download_dir': '/dl',
+                    'hash_string': 'abc',
                   },
                 ],
               },

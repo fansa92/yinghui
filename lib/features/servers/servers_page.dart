@@ -340,10 +340,21 @@ class _ServersPageState extends State<ServersPage> {
                     token: secretController.text,
                     isDefault: server?.isDefault ?? false,
                   );
+                  // Emby: a username + secret is an account login, not
+                  // an API key — exchange the password for an access
+                  // token now, so the saved server actually works. If
+                  // login fails the server is saved as entered (the
+                  // test result already showed it needs login).
+                  var toSave = result;
+                  if (effectiveType == ServerType.emby &&
+                      result.username.isNotEmpty &&
+                      result.token.isNotEmpty) {
+                    toSave = await store.loginEmby(result) ?? result;
+                  }
                   if (server == null) {
-                    await store.add(result);
+                    await store.add(toSave);
                   } else {
-                    await store.update(result);
+                    await store.update(toSave);
                   }
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();

@@ -116,7 +116,10 @@ class RealMusicRepository implements MusicRepository {
   /// fail, and merge + dedupe the results by [key]. With [serverId]
   /// set, only that server is queried at all — and its failure is
   /// rethrown instead of swallowed, so a page filtered to one offline
-  /// server shows an error instead of a misleading empty list.
+  /// server shows an error instead of a misleading empty list. With
+  /// no filter, one dead server is still skipped — but when EVERY
+  /// credentialed server fails, the last failure is rethrown, so the
+  /// page shows its error view instead of a silent empty list.
   Future<List<T>> _merged<T>(
     Future<List<T>> Function(SubsonicClient client) fetch,
     String Function(T item) key, {
@@ -127,18 +130,23 @@ class RealMusicRepository implements MusicRepository {
         : _clients.where((e) => e.$1.id == serverId).toList();
     final out = <T>[];
     final seen = <String>{};
+    ApiException? lastError;
+    var failures = 0;
     for (final (_, client) in clients) {
       List<T> items;
       try {
         items = await fetch(client);
-      } on ApiException {
+      } on ApiException catch (e) {
         if (serverId != null) rethrow;
+        failures++;
+        lastError = e;
         continue;
       }
       for (final item in items) {
         if (seen.add(key(item))) out.add(item);
       }
     }
+    if (clients.isNotEmpty && failures == clients.length) throw lastError!;
     return out;
   }
 
@@ -194,14 +202,19 @@ class RealMusicRepository implements MusicRepository {
     final clients = serverId == null
         ? _clients
         : _clients.where((e) => e.$1.id == serverId).toList();
+    ApiException? lastError;
+    var failures = 0;
     for (final (_, client) in clients) {
       try {
         results.add(await client.searchAll(query));
-      } on ApiException {
+      } on ApiException catch (e) {
         if (serverId != null) rethrow;
+        failures++;
+        lastError = e;
         continue;
       }
     }
+    if (clients.isNotEmpty && failures == clients.length) throw lastError!;
     List<T> dedupe<T>(List<T> items, String Function(T) key) {
       final out = <T>[];
       final seen = <String>{};
@@ -257,14 +270,19 @@ class RealMusicRepository implements MusicRepository {
     final clients = serverId == null
         ? _clients
         : _clients.where((e) => e.$1.id == serverId).toList();
+    ApiException? lastError;
+    var failures = 0;
     for (final (_, client) in clients) {
       try {
         results.add(await client.getStarred2());
-      } on ApiException {
+      } on ApiException catch (e) {
         if (serverId != null) rethrow;
+        failures++;
+        lastError = e;
         continue;
       }
     }
+    if (clients.isNotEmpty && failures == clients.length) throw lastError!;
     List<T> dedupe<T>(List<T> items, String Function(T) key) {
       final out = <T>[];
       final seen = <String>{};

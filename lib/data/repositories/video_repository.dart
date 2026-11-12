@@ -53,6 +53,17 @@ abstract class VideoRepository {
     bool isPaused = false,
   });
   Future<void> markPlayed(VideoItem item);
+
+  /// Report that playback started (POST /Sessions/Playing). No-op by
+  /// default; [RealVideoRepository] reports it to the server.
+  Future<void> reportPlaybackStarted(
+    VideoItem item, {
+    String playMethod = 'DirectPlay',
+  }) async {}
+
+  /// Report that playback stopped (POST /Sessions/Playing/Stopped).
+  /// No-op by default; [RealVideoRepository] reports it to the server.
+  Future<void> reportPlaybackStopped(VideoItem item, Duration position) async {}
 }
 
 /// Real video repository: Emby servers, merged.
@@ -125,7 +136,10 @@ class RealVideoRepository implements VideoRepository {
   /// fail, and merge + dedupe the results by [key]. With [serverId]
   /// set, only that server is queried at all — and its failure is
   /// rethrown instead of swallowed, so a page filtered to one offline
-  /// server shows an error instead of a misleading empty list.
+  /// server shows an error instead of a misleading empty list. With
+  /// no filter, one dead server is still skipped — but when EVERY
+  /// credentialed server fails, the last failure is rethrown, so the
+  /// page shows its error view instead of a silent empty list.
   Future<List<T>> _merged<T>(
     Future<List<T>> Function(EmbyClient client) fetch,
     String Function(T item) key, {
@@ -136,18 +150,23 @@ class RealVideoRepository implements VideoRepository {
         : _clients.where((e) => e.$1.id == serverId).toList();
     final out = <T>[];
     final seen = <String>{};
+    ApiException? lastError;
+    var failures = 0;
     for (final (_, client) in clients) {
       List<T> items;
       try {
         items = await fetch(client);
-      } on ApiException {
+      } on ApiException catch (e) {
         if (serverId != null) rethrow;
+        failures++;
+        lastError = e;
         continue;
       }
       for (final item in items) {
         if (seen.add(key(item))) out.add(item);
       }
     }
+    if (clients.isNotEmpty && failures == clients.length) throw lastError!;
     return out;
   }
 
@@ -266,6 +285,8 @@ class RealVideoRepository implements VideoRepository {
     final clients = serverId == null
         ? _clients
         : _clients.where((e) => e.$1.id == serverId).toList();
+    ApiException? lastError;
+    var failures = 0;
     for (final (_, client) in clients) {
       try {
         final uid = await client.userId();
@@ -280,11 +301,14 @@ class RealVideoRepository implements VideoRepository {
         for (final item in items) {
           if (seen.add(_videoKey(item))) out.add(item);
         }
-      } on ApiException {
+      } on ApiException catch (e) {
         if (serverId != null) rethrow;
+        failures++;
+        lastError = e;
         continue;
       }
     }
+    if (clients.isNotEmpty && failures == clients.length) throw lastError!;
     return out;
   }
 
@@ -385,6 +409,9 @@ class RealVideoRepository implements VideoRepository {
         ? client.videoStreamUrl(item.id)
         : client.transcodeUrl(
             item.id,
+            // Pin the transcode to the source PlaybackInfo chose;
+            // without it the server transcodes its default source.
+            mediaSourceId: source.id,
             maxStreamingBitrate: decision.maxStreamingBitrate,
             subtitleStreamIndex: decision.subtitleStreamIndex,
           );
@@ -434,5 +461,33 @@ class RealVideoRepository implements VideoRepository {
       }
     }
     await _playback.updatePosition(_trackFor(item), item.durationSeconds);
+  }
+
+  @override
+  Future<void> reportPlaybackStarted(
+    VideoItem item, {
+    String playMethod = 'DirectPlay',
+  }) async {
+    final client = _clientFor(item.serverId);
+    if (client != null) {
+      try {
+        await client.reportPlaybackStarted(item.id, playMethod: playMethod);
+      } on ApiException {
+        // Server unreachable: playback continues locally.
+      }
+    }
+  }
+
+  @override
+  Future<void> reportPlaybackStopped(VideoItem item, Duration position) async {
+    final client = _clientFor(item.serverId);
+    if (client != null) {
+      try {
+        await client.reportPlaybackStopped(item.id, position);
+      } on ApiException {
+        // Server unreachable: the local resume position still saves.
+      }
+    }
+    await _playback.updatePosition(_trackFor(item), position.inSeconds);
   }
 }

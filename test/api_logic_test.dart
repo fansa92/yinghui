@@ -99,8 +99,9 @@ void main() {
                   requestOptions: options,
                   statusCode: 200,
                   data: {
-                    'result': 'success',
-                    'arguments': {'session-id': 'sess-xyz'},
+                    'jsonrpc': '2.0',
+                    'id': 1,
+                    'result': {'session-id': 'sess-xyz'},
                   },
                 ),
               );
@@ -430,7 +431,11 @@ void _mainP1() {
                 Response(
                   requestOptions: options,
                   statusCode: 200,
-                  data: {'result': 'success', 'arguments': <String, dynamic>{}},
+                  data: {
+                    'jsonrpc': '2.0',
+                    'id': 1,
+                    'result': <String, dynamic>{},
+                  },
                 ),
               );
             },

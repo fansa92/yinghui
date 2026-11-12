@@ -710,5 +710,14 @@ class _StyleFakeVideoRepo implements VideoRepository {
   Future<void> markPlayed(VideoItem item) async {}
 
   @override
+  Future<void> reportPlaybackStarted(
+    VideoItem item, {
+    String playMethod = 'DirectPlay',
+  }) async {}
+
+  @override
+  Future<void> reportPlaybackStopped(VideoItem item, Duration position) async {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

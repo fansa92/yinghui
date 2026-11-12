@@ -26,7 +26,7 @@ class ConnectionResult {
   bool get isUnreachable => status == ConnectionStatus.unreachable;
 
   factory ConnectionResult.ok({
-    String message = 'Connected',
+    String message = '已连接',
     String? serverVersion,
     String? serverName,
   }) => ConnectionResult(
@@ -37,7 +37,7 @@ class ConnectionResult {
   );
 
   factory ConnectionResult.needsAuth({
-    String message = 'Server reachable — login required',
+    String message = '服务器可达，需要登录',
     String? serverVersion,
     String? serverName,
   }) => ConnectionResult(
@@ -47,7 +47,7 @@ class ConnectionResult {
     serverName: serverName,
   );
 
-  factory ConnectionResult.unreachable({String message = 'Unreachable'}) =>
+  factory ConnectionResult.unreachable({String message = '无法连接'}) =>
       ConnectionResult(status: ConnectionStatus.unreachable, message: message);
 
   @override

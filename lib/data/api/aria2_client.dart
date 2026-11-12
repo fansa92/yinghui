@@ -93,7 +93,7 @@ class Aria2Client {
       if (result is Map && result['version'] is String) {
         return ConnectionResult.ok(serverVersion: '${result['version']}');
       }
-      return ConnectionResult.unreachable(message: 'Unexpected aria2 response');
+      return ConnectionResult.unreachable(message: 'aria2 返回异常');
     } on ApiException catch (e) {
       return ConnectionResult.unreachable(message: e.message);
     }
@@ -132,14 +132,20 @@ class Aria2Client {
     return [...active, ...waiting, ...stopped];
   }
 
-  /// aria2.tellStopped — finished / failed tasks.
+  /// aria2.tellStopped — finished / failed / removed tasks. The
+  /// entry's `status` decides: only `complete` is completed; `error`
+  /// and `removed` are failed (a failed download must be offered a
+  /// retry, not shown as done).
   Future<List<DownloadTask>> tellStopped() async {
     final result = await rpc('aria2.tellStopped', [0, 100]);
     final list = (result as List?) ?? [];
-    return list
-        .whereType<Map<String, dynamic>>()
-        .map((json) => _taskFromJson(json, DownloadStatus.completed))
-        .toList();
+    return list.whereType<Map<String, dynamic>>().map((json) {
+      final status = '${json['status'] ?? ''}';
+      return _taskFromJson(
+        json,
+        status == 'complete' ? DownloadStatus.completed : DownloadStatus.failed,
+      );
+    }).toList();
   }
 
   /// aria2.tellStatus — one download by GID.

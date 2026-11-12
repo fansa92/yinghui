@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/models/connection_result.dart';
 import '../../core/models/server.dart';
 import '../api/api_client_factory.dart';
+import '../api/emby_client.dart';
 import '../db/app_database.dart';
 
 /// Holds the server list in memory and persists it in two tiers:
@@ -32,9 +33,11 @@ class ServerStore extends ChangeNotifier {
     FlutterSecureStorage? secureStorage,
     AppDatabase? database,
     Future<ConnectionResult> Function(Server)? connectionTester,
+    EmbyClient Function(Server server)? embyClientFactory,
   }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
        _db = database ?? AppDatabase(),
-       _connectionTester = connectionTester ?? ApiClientFactory.testConnection;
+       _connectionTester = connectionTester ?? ApiClientFactory.testConnection,
+       _embyClientFactory = embyClientFactory ?? ((s) => EmbyClient(s));
 
   static const String _legacyPrefsKey = 'yinghui_servers';
   static const String _seededPrefsKey = 'yinghui_seeded_v1';
@@ -46,6 +49,10 @@ class ServerStore extends ChangeNotifier {
   /// for tests (a fake can return canned results without a network);
   /// production uses [ApiClientFactory.testConnection].
   final Future<ConnectionResult> Function(Server) _connectionTester;
+
+  /// Builds the Emby client used for username+password login.
+  /// Injected for tests; production uses the real [EmbyClient].
+  final EmbyClient Function(Server server) _embyClientFactory;
   final List<Server> _servers = [];
 
   /// The Drift database, shared with PlaybackStore (P2) so servers,
@@ -239,10 +246,53 @@ class ServerStore extends ChangeNotifier {
   /// row (see [_recordProbeResult]). The form's Test Connection button
   /// goes through here too, so a successful probe there persists as
   /// well — even if the dialog is then cancelled.
+  ///
+  /// Emby: the stored secret may be an account password rather than
+  /// an API key — it fails as a token. When a username is set and the
+  /// probe did not pass, this logs in once ([loginEmby]) and re-probes
+  /// with the access token, so a password-based server heals itself
+  /// instead of showing "needs login" forever.
   Future<ConnectionResult> testConnection(Server server) async {
-    final result = await _connectionTester(server);
+    var result = await _connectionTester(server);
+    if (!result.isOk &&
+        server.type == ServerType.emby &&
+        server.username.isNotEmpty &&
+        server.token.isNotEmpty) {
+      final authed = await loginEmby(server);
+      if (authed != null) {
+        result = await _connectionTester(authed);
+      }
+    }
     await _recordProbeResult(server.id, result);
     return result;
+  }
+
+  /// Emby username+password login: POST /Users/AuthenticateByName
+  /// (the secret field holds the password) and persist the returned
+  /// access token as the server's secret, so later calls send it as
+  /// X-Emby-Token. Returns the server with the token replaced, or
+  /// null when login fails (wrong password, unreachable server) — the
+  /// caller then keeps the original server unchanged. A server whose
+  /// id is not in the list yet (an unsaved form candidate) is
+  /// authenticated but not persisted; the caller saves the returned
+  /// server. A pasted API key must never reach here: callers only
+  /// invoke this when a username is set.
+  Future<Server?> loginEmby(Server server) async {
+    if (server.type != ServerType.emby) return null;
+    try {
+      final token = await _embyClientFactory(server).authenticate();
+      final authed = server.copyWith(token: token);
+      final index = _servers.indexWhere((s) => s.id == server.id);
+      if (index >= 0) {
+        _servers[index] = authed;
+        await _save();
+        notifyListeners();
+      }
+      return authed;
+    } catch (e) {
+      debugPrint('ServerStore Emby login failed: $e');
+      return null;
+    }
   }
 
   /// Persists a probe's version/name onto the stored server. Only a

@@ -129,7 +129,7 @@ class SubsonicClient {
     final version =
         response['serverVersion'] as String? ?? response['version'] as String?;
     if (response['status'] == 'ok') {
-      return ConnectionResult.ok(message: 'Connected', serverVersion: version);
+      return ConnectionResult.ok(message: '已连接', serverVersion: version);
     }
     final error = response['error'] as Map<String, dynamic>?;
     final code = (error?['code'] as num?)?.toInt();
@@ -138,19 +138,17 @@ class SubsonicClient {
     // the server is alive and speaking Subsonic, it just needs auth.
     if (code == 10 || code == 40) {
       return ConnectionResult.needsAuth(
-        message: 'Server reachable — login required ($message)',
+        message: '服务器可达，需要登录（$message）',
         serverVersion: version,
       );
     }
     if (error != null) {
       return ConnectionResult.needsAuth(
-        message: 'Server reachable — $message',
+        message: '服务器可达：$message',
         serverVersion: version,
       );
     }
-    return ConnectionResult.unreachable(
-      message: 'Unexpected Subsonic response',
-    );
+    return ConnectionResult.unreachable(message: 'Subsonic 返回异常');
   }
 
   /// Structured connectivity check. Probes without auth first; if the
@@ -169,7 +167,7 @@ class SubsonicClient {
         final body = await _get('ping');
         if (body['status'] == 'ok') {
           return ConnectionResult.ok(
-            message: 'Connected',
+            message: '已连接',
             serverVersion: probe.serverVersion,
           );
         }
@@ -185,7 +183,7 @@ class SubsonicClient {
         );
       }
       return ConnectionResult.unreachable(
-        message: 'Unreachable: ${e.message ?? e.type.name}',
+        message: '无法连接：${e.message ?? e.type.name}',
       );
     }
   }

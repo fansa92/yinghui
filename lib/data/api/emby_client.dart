@@ -87,21 +87,12 @@ class EmbyClient {
     }
   }
 
-  /// GET /System/Info — true when the token is accepted.
+  /// GET /Users/Me — true when the token is accepted. Used as the
+  /// token check: /System/Info answers 200 without auth on some
+  /// servers, so it cannot tell a good token from a bad one.
   Future<bool> testConnection() async {
-    try {
-      final response = await dio.get<Map<String, dynamic>>(
-        'System/Info',
-        options: Options(headers: {..._authHeader, ..._tokenHeader}),
-      );
-      return response.statusCode == 200;
-    } on DioException catch (e) {
-      throw ApiException(
-        'Emby connection failed: ${e.message ?? e.type.name}',
-        statusCode: e.response?.statusCode,
-        cause: e,
-      );
-    }
+    await userId();
+    return true;
   }
 
   /// Pure, testable parse of GET /System/Info/Public. HTTP 200 with
@@ -109,18 +100,20 @@ class EmbyClient {
   /// auth, it is not unreachable.
   static ConnectionResult parsePublicInfo(Map<String, dynamic> json) {
     if ('${json['ProductName'] ?? ''}' != 'Emby Server') {
-      return ConnectionResult.unreachable(message: 'Not an Emby server');
+      return ConnectionResult.unreachable(message: '不是 Emby 服务器');
     }
     return ConnectionResult.needsAuth(
-      message: 'Server reachable — login required',
+      message: '服务器可达，需要登录',
       serverVersion: '${json['ServerVersion'] ?? ''}',
       serverName: '${json['ServerName'] ?? ''}',
     );
   }
 
   /// Structured connectivity check. GET /System/Info/Public first
-  /// (no auth needed); if a token is present, also try /System/Info
-  /// and return `ok` when the token is accepted.
+  /// (no auth needed); if a token is present, validate it against
+  /// GET /Users/Me — not /System/Info, which answers HTTP 200 without
+  /// auth on some servers and so cannot detect a bad token — and
+  /// return `ok` only when the token is accepted.
   Future<ConnectionResult> testConnectionResult() async {
     try {
       final public = await dio.get<Map<String, dynamic>>(
@@ -136,18 +129,13 @@ class EmbyClient {
       if (probe.isUnreachable) return probe;
       if (server.token.isEmpty) return probe;
       try {
-        final info = await dio.get<Map<String, dynamic>>(
-          'System/Info',
-          options: Options(headers: {..._authHeader, ..._tokenHeader}),
+        await userId();
+        return ConnectionResult.ok(
+          message: '已连接',
+          serverVersion: probe.serverVersion,
+          serverName: probe.serverName,
         );
-        if (info.statusCode == 200) {
-          return ConnectionResult.ok(
-            message: 'Connected',
-            serverVersion: '${info.data?['Version'] ?? probe.serverVersion}',
-            serverName: '${info.data?['ServerName'] ?? probe.serverName}',
-          );
-        }
-      } on DioException {
+      } on ApiException {
         // Token rejected: the public probe already proved reachability.
       }
       return probe;
@@ -158,7 +146,7 @@ class EmbyClient {
         );
       }
       return ConnectionResult.unreachable(
-        message: 'Unreachable: ${e.message ?? e.type.name}',
+        message: '无法连接：${e.message ?? e.type.name}',
       );
     }
   }
@@ -466,6 +454,8 @@ class EmbyClient {
 
   /// POST /Items/{id}/PlaybackInfo — media sources for the
   /// direct-play vs transcode decision. Returns the parsed sources.
+  /// Also remembers the response's PlaySessionId and the first
+  /// source's id, which the /Sessions/Playing* check-ins need.
   Future<List<MediaSourceInfo>> getPlaybackInfo(String itemId) async {
     final uid = await userId();
     final body = await _postMap('Items/$itemId/PlaybackInfo', {
@@ -473,7 +463,10 @@ class EmbyClient {
       'MaxStreamingBitrate': 120000000,
       'MaxStaticBitrate': 120000000,
     });
-    return parseMediaSources(body);
+    _playSessionId = body['PlaySessionId'] as String?;
+    final sources = parseMediaSources(body);
+    _lastMediaSourceId = sources.isEmpty ? null : sources.first.id;
+    return sources;
   }
 
   /// Pure parse of a PlaybackInfo response into media sources.
@@ -520,7 +513,9 @@ class EmbyClient {
   }
 
   /// HLS transcode URL: GET /Videos/{id}/master.m3u8. Server-side
-  /// transcoding only — no local FFmpeg in P3.
+  /// transcoding only — no local FFmpeg in P3. [mediaSourceId] pins
+  /// the transcode to the source [getPlaybackInfo] chose; without it
+  /// the server picks the default source, which may differ.
   String transcodeUrl(
     String itemId, {
     String videoCodec = 'h264',
@@ -528,12 +523,16 @@ class EmbyClient {
     int? maxStreamingBitrate,
     int? subtitleStreamIndex,
     int? audioStreamIndex,
+    String? mediaSourceId,
   }) {
     final query = <String, String>{
       'api_key': server.token,
       'VideoCodec': videoCodec,
       'AudioCodec': audioCodec,
     };
+    if (mediaSourceId != null && mediaSourceId.isNotEmpty) {
+      query['MediaSourceId'] = mediaSourceId;
+    }
     if (maxStreamingBitrate != null) {
       query['MaxStreamingBitrate'] = '$maxStreamingBitrate';
     }
@@ -553,10 +552,11 @@ class EmbyClient {
   }
 
   /// Subtitle stream URL for one subtitle track. Prefers the server's
-  /// DeliveryUrl when present, else builds the Stream.srt URL. When
-  /// the track has no media source id, the segment is omitted — the
-  /// route is /Videos/{id}/Subtitles/{index}/Stream.srt, and an empty
-  /// id would produce a broken '//Subtitles' path.
+  /// DeliveryUrl when present, else builds the Stream.srt URL from
+  /// the track's media source id. When the track has no media source
+  /// id there is no valid URL — the no-source route
+  /// /Videos/{id}/Subtitles/{index}/Stream.srt does not exist (404) —
+  /// so this returns '' and the caller clears the subtitle track.
   String subtitleUrl(
     String itemId,
     SubtitleTrackInfo track, {
@@ -567,28 +567,91 @@ class EmbyClient {
       return delivery.startsWith('http') ? delivery : '$_baseNoSlash$delivery';
     }
     final mediaSourceId = track.mediaSourceId;
-    final sourceSegment = mediaSourceId == null || mediaSourceId.isEmpty
-        ? ''
-        : '/$mediaSourceId';
+    if (mediaSourceId == null || mediaSourceId.isEmpty) return '';
     final base =
-        '$_baseNoSlash/Videos/$itemId$sourceSegment/Subtitles/${track.index}/Stream.$format';
+        '$_baseNoSlash/Videos/$itemId/$mediaSourceId/Subtitles/${track.index}/Stream.$format';
     if (server.token.isEmpty) return base;
     return '$base?api_key=${Uri.encodeQueryComponent(server.token)}';
   }
 
-  /// POST /Users/{userId}/Items/{id}/PlayingItems/{id}/Progress —
-  /// resume position reporting (pause / stop / dispose).
+  /// The PlaySessionId / media source id of the last PlaybackInfo
+  /// response, for the /Sessions/Playing* check-ins (B4). Empty
+  /// until a playback decision is made; the check-ins simply omit
+  /// them when unknown.
+  String? _playSessionId;
+  String? _lastMediaSourceId;
+
+  /// One PlaybackProgressInfo body (Emby "Playback Check-ins" doc):
+  /// ItemId, PositionTicks (100ns), IsPaused, CanSeek, plus the
+  /// MediaSourceId / PlaySessionId from the last PlaybackInfo when
+  /// known, and EventName / PlayMethod when given.
+  Map<String, dynamic> _playbackCheckIn(
+    String itemId,
+    Duration position, {
+    bool isPaused = false,
+    String? playMethod,
+    String? eventName,
+  }) {
+    // Locals, with empty strings normalised to null so the null-aware
+    // elements below omit them.
+    final mediaSourceId = _lastMediaSourceId?.isEmpty == true
+        ? null
+        : _lastMediaSourceId;
+    final playSessionId = _playSessionId?.isEmpty == true
+        ? null
+        : _playSessionId;
+    return {
+      'ItemId': itemId,
+      'MediaSourceId': ?mediaSourceId,
+      'PlaySessionId': ?playSessionId,
+      'PositionTicks': position.inMicroseconds * 10,
+      'IsPaused': isPaused,
+      'CanSeek': true,
+      'QueueableMediaTypes': ['Video'],
+      'PlayMethod': ?playMethod,
+      'EventName': ?eventName,
+    };
+  }
+
+  /// POST /Sessions/Playing — tell the server playback started
+  /// (creates the session and the resume entry).
+  Future<void> reportPlaybackStarted(
+    String itemId, {
+    String playMethod = 'DirectPlay',
+    Duration position = Duration.zero,
+  }) async {
+    await _postMap(
+      'Sessions/Playing',
+      _playbackCheckIn(itemId, position, playMethod: playMethod),
+    );
+  }
+
+  /// POST /Sessions/Playing/Progress — resume position reporting
+  /// (pause / periodic). Same body as the start check-in plus
+  /// EventName: Pause when paused, TimeUpdate otherwise.
   Future<void> reportProgress(
     String itemId,
     Duration position, {
     bool isPaused = false,
   }) async {
-    final uid = await userId();
-    await _postMap('Users/$uid/Items/$itemId/PlayingItems/$itemId/Progress', {
-      'PositionTicks': position.inMicroseconds * 10,
-      'IsPaused': isPaused,
-      'CanSeek': true,
-    });
+    await _postMap(
+      'Sessions/Playing/Progress',
+      _playbackCheckIn(
+        itemId,
+        position,
+        isPaused: isPaused,
+        eventName: isPaused ? 'Pause' : 'TimeUpdate',
+      ),
+    );
+  }
+
+  /// POST /Sessions/Playing/Stopped — playback ended; same body as
+  /// the start check-in.
+  Future<void> reportPlaybackStopped(String itemId, Duration position) async {
+    await _postMap(
+      'Sessions/Playing/Stopped',
+      _playbackCheckIn(itemId, position, isPaused: true),
+    );
   }
 
   /// POST /Users/{userId}/PlayedItems/{id} — mark watched on completion.

@@ -143,8 +143,9 @@ void main() {
               seen = options.uri;
               handler.resolve(
                 _ok(options, {
-                  'result': 'success',
-                  'arguments': <String, dynamic>{},
+                  'jsonrpc': '2.0',
+                  'id': 1,
+                  'result': <String, dynamic>{},
                 }),
               );
             },
@@ -458,17 +459,13 @@ void main() {
   });
 
   group('Fix 5 — Emby subtitle fallback has no empty media source id', () {
-    test('subtitleUrl without mediaSourceId omits the empty segment', () {
+    test('subtitleUrl without mediaSourceId emits no fallback URL', () {
       final client = EmbyClient(
         _server(type: ServerType.emby, host: 'https://cf.imetyou.top'),
       );
       const track = SubtitleTrackInfo(index: 3, codec: 'ass');
-      expect(
-        client.subtitleUrl('m1', track),
-        'https://cf.imetyou.top/Videos/m1/Subtitles/3/Stream.srt'
-        '?api_key=s3cret',
-      );
-      expect(client.subtitleUrl('m1', track), isNot(contains('//Subtitles')));
+      // M1: the sourceless fallback route 404s, so no URL is emitted.
+      expect(client.subtitleUrl('m1', track), isEmpty);
     });
 
     test('allSubtitles fills mediaSourceId from the media sources', () {
@@ -1084,6 +1081,15 @@ class _FixFakeVideoRepo implements VideoRepository {
 
   @override
   Future<void> markPlayed(VideoItem item) async {}
+
+  @override
+  Future<void> reportPlaybackStarted(
+    VideoItem item, {
+    String playMethod = 'DirectPlay',
+  }) async {}
+
+  @override
+  Future<void> reportPlaybackStopped(VideoItem item, Duration position) async {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

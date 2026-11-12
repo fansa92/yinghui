@@ -62,8 +62,9 @@ class QbittorrentClient {
   Map<String, String> get _cookieHeader =>
       _sid == null ? {} : {'Cookie': 'SID=$_sid'};
 
-  /// POST /api/v2/auth/login. Returns true on "Ok". Throws [ApiException]
-  /// on bad credentials.
+  /// POST /api/v2/auth/login. Returns true on "Ok." — qB answers with
+  /// a trailing dot (the wiki's login example shows Content-Length: 3).
+  /// Throws [ApiException] on bad credentials.
   Future<bool> login() async {
     final ok = await _guard(() async {
       final response = await dio.post<String>(
@@ -76,7 +77,10 @@ class QbittorrentClient {
         final match = RegExp(r'SID=([^;]+)').firstMatch(cookie);
         if (match != null) _sid = match.group(1);
       }
-      return response.data == 'Ok';
+      // "Ok." (3 bytes) is the documented success body; accept a
+      // bare "Ok" too, defensively, and ignore surrounding whitespace.
+      final body = (response.data ?? '').trim();
+      return body == 'Ok.' || body == 'Ok';
     }, 'login');
     if (!ok) throw ApiException('qBittorrent login failed: bad credentials');
     return true;
@@ -102,19 +106,14 @@ class QbittorrentClient {
     try {
       final probe = await dio.get<String>('api/v2/app/version');
       if (probe.statusCode == 200) {
-        return ConnectionResult.ok(
-          message: 'Connected',
-          serverVersion: probe.data,
-        );
+        return ConnectionResult.ok(message: '已连接', serverVersion: probe.data);
       }
       return ConnectionResult.unreachable(message: 'HTTP ${probe.statusCode}');
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 403) {
         if (server.username.isEmpty || server.token.isEmpty) {
-          return ConnectionResult.needsAuth(
-            message: 'Server reachable — login required (HTTP 403)',
-          );
+          return ConnectionResult.needsAuth(message: '服务器可达，需要登录（HTTP 403）');
         }
         try {
           await login();
@@ -124,7 +123,7 @@ class QbittorrentClient {
           );
           if (version.statusCode == 200) {
             return ConnectionResult.ok(
-              message: 'Connected',
+              message: '已连接',
               serverVersion: version.data,
             );
           }
@@ -136,15 +135,13 @@ class QbittorrentClient {
           // is still "needs login", not "unreachable" — and it must not
           // escape as a raw DioException to the caller.
         }
-        return ConnectionResult.needsAuth(
-          message: 'Server reachable — login required (HTTP 403)',
-        );
+        return ConnectionResult.needsAuth(message: '服务器可达，需要登录（HTTP 403）');
       }
       if (status != null) {
         return ConnectionResult.unreachable(message: 'HTTP $status');
       }
       return ConnectionResult.unreachable(
-        message: 'Unreachable: ${e.message ?? e.type.name}',
+        message: '无法连接：${e.message ?? e.type.name}',
       );
     }
   }
@@ -188,20 +185,21 @@ class QbittorrentClient {
     });
   }
 
-  /// POST /api/v2/torrents/add — magnet link or torrent URL.
+  /// POST /api/v2/torrents/add — magnet link or torrent URL. The
+  /// wiki's example posts multipart/form-data (`urls`, `savepath`),
+  /// so this sends a [FormData], not urlencoded fields.
   Future<bool> addMagnet(String magnetUrl, {String? savePath}) async {
     return _withRelogin(() async {
       await _ensureLogin();
-      final data = <String, String>{'urls': magnetUrl};
-      if (savePath != null) data['savepath'] = savePath;
+      final formMap = <String, dynamic>{'urls': magnetUrl};
+      final path = savePath;
+      if (path != null) formMap['savepath'] = path;
+      final form = FormData.fromMap(formMap);
       return _guard(() async {
         final response = await dio.post<String>(
           'api/v2/torrents/add',
-          data: data,
-          options: Options(
-            headers: _cookieHeader,
-            contentType: Headers.formUrlEncodedContentType,
-          ),
+          data: form,
+          options: Options(headers: _cookieHeader),
         );
         return response.statusCode == 200;
       }, 'add torrent');
@@ -254,13 +252,24 @@ class QbittorrentClient {
 
   DownloadTask _taskFromJson(Map<String, dynamic> json) {
     final state = '${json['state'] ?? ''}';
+    // Wiki state table: forcedDL is downloading (forced start),
+    // forcedUP is seeding (done), stoppedUP is paused. `checking*`,
+    // `allocating` and `moving` have no dedicated state here and fall
+    // through to queued.
     final status = switch (state) {
       'downloading' ||
       'stalledDL' ||
       'queuedDL' ||
-      'metaDL' => DownloadStatus.downloading,
-      'pausedDL' || 'pausedUP' || 'stoppedDL' => DownloadStatus.paused,
-      'uploading' || 'stalledUP' || 'queuedUP' => DownloadStatus.completed,
+      'metaDL' ||
+      'forcedDL' => DownloadStatus.downloading,
+      'pausedDL' ||
+      'pausedUP' ||
+      'stoppedDL' ||
+      'stoppedUP' => DownloadStatus.paused,
+      'uploading' ||
+      'stalledUP' ||
+      'queuedUP' ||
+      'forcedUP' => DownloadStatus.completed,
       'error' || 'missingFiles' => DownloadStatus.failed,
       _ => DownloadStatus.queued,
     };
@@ -274,9 +283,16 @@ class QbittorrentClient {
       sizeBytes: (json['size'] as num?)?.toInt() ?? 0,
       downloadedBytes: (json['completed'] as num?)?.toInt() ?? 0,
       serverId: server.id,
-      etaSeconds: (json['eta'] as num?)?.toInt() ?? -1,
+      etaSeconds: _etaFromJson(json['eta']),
       savePath: '${json['save_path'] ?? ''}',
       hash: '${json['hash'] ?? ''}',
     );
+  }
+
+  /// The wiki's torrents/info table: eta 8640000 means "unknown" —
+  /// show no ETA (same as -1) instead of a bogus 100-day countdown.
+  static int _etaFromJson(dynamic raw) {
+    final eta = (raw as num?)?.toInt() ?? -1;
+    return eta == 8640000 ? -1 : eta;
   }
 }

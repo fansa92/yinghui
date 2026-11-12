@@ -59,6 +59,11 @@ class _HomePageState extends State<HomePage> {
   List<PlaybackHistoryData> _recentHistory = [];
   bool _hadCredentials = false;
 
+  /// Per-section load failures, shown inline instead of a blank
+  /// section (a failed fetch must never look like an empty library).
+  String? _videoError;
+  String? _musicError;
+
   bool get _hasAnyCredentials =>
       widget.musicRepo.hasCredentials ||
       widget.videoRepo.hasCredentials ||
@@ -91,19 +96,25 @@ class _HomePageState extends State<HomePage> {
     List<VideoItem> recentVideos = [];
     List<Album> albums = [];
     List<PlaybackHistoryData> history = [];
+    String? videoError;
+    String? musicError;
     try {
       if (widget.videoRepo.hasCredentials) {
         watching = await widget.videoRepo.continueWatching();
         recentVideos = await widget.videoRepo.recentlyAdded();
       }
-    } catch (_) {
-      // A failed section stays empty; it never blanks the page.
+    } catch (e) {
+      // The video section failed on every server: keep the error so
+      // the section shows it instead of staying blank.
+      videoError = '$e';
     }
     try {
       if (widget.musicRepo.hasCredentials) {
         albums = await widget.musicRepo.albums(size: 6);
       }
-    } catch (_) {}
+    } catch (e) {
+      musicError = '$e';
+    }
     try {
       history = await widget.history.recentHistory(limit: 3);
     } catch (_) {}
@@ -113,6 +124,8 @@ class _HomePageState extends State<HomePage> {
       _recentVideos = recentVideos;
       _recentAlbums = albums;
       _recentHistory = history;
+      _videoError = videoError;
+      _musicError = musicError;
     });
   }
 
@@ -231,6 +244,16 @@ class _HomePageState extends State<HomePage> {
                       minHeight: 4,
                       borderRadius: BorderRadius.circular(2),
                     ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (_videoError != null &&
+                      _continueWatching.isEmpty &&
+                      _recentVideos.isEmpty) ...[
+                    _sectionError('视频加载失败', _videoError!, _load),
+                    const SizedBox(height: 16),
+                  ],
+                  if (_musicError != null && _recentAlbums.isEmpty) ...[
+                    _sectionError('音乐加载失败', _musicError!, _load),
                     const SizedBox(height: 16),
                   ],
                   if (_continueWatching.isNotEmpty) ...[
@@ -358,6 +381,20 @@ class _HomePageState extends State<HomePage> {
       style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
     ),
   );
+
+  /// A failed section, inline with a retry — never a blank section.
+  Widget _sectionError(String title, String detail, VoidCallback onRetry) =>
+      Card(
+        child: ListTile(
+          leading: const Icon(
+            Icons.error_outline,
+            color: YingHuiTheme.errorRed,
+          ),
+          title: Text(title),
+          subtitle: Text(detail),
+          trailing: TextButton(onPressed: onRetry, child: const Text('重试')),
+        ),
+      );
 }
 
 class _ServerChip extends StatelessWidget {

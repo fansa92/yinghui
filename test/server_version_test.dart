@@ -98,7 +98,7 @@ Dio _mockTransmissionDio(Map<String, dynamic> arguments) {
             Response(
               requestOptions: options,
               statusCode: 200,
-              data: {'result': 'success', 'arguments': arguments},
+              data: {'jsonrpc': '2.0', 'id': 1, 'result': arguments},
             ),
           );
         },

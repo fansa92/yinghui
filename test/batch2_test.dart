@@ -161,7 +161,8 @@ void main() {
             );
           }
           if (options.path.contains('torrents/add')) {
-            sentUrls.add('${(options.data as Map)['urls']}');
+            final form = options.data as FormData;
+            sentUrls.add(form.fields.firstWhere((e) => e.key == 'urls').value);
             return _ok(options, 'Ok.');
           }
           // refresh() after the add: the new torrent is live.

@@ -97,13 +97,13 @@ Map<String, dynamic> _trJson({
   'id': id,
   'name': name,
   'status': status,
-  'percentDone': percentDone,
-  'rateDownload': rateDownload,
-  'totalSize': totalSize,
-  'downloadedEver': downloadedEver,
+  'percent_done': percentDone,
+  'rate_download': rateDownload,
+  'total_size': totalSize,
+  'downloaded_ever': downloadedEver,
   'eta': eta,
-  'downloadDir': '/data/torrents',
-  'hashString': 'deadbeef',
+  'download_dir': '/data/torrents',
+  'hash_string': 'deadbeef',
 };
 
 Map<String, dynamic> _ariaJson({
@@ -185,21 +185,21 @@ void main() {
       expect(seen, contains('api/v2/torrents/info'));
     });
 
-    test('addMagnet posts to the right endpoint with savepath', () async {
+    test('addMagnet posts multipart FormData with urls + savepath', () async {
       String? seenPath;
-      Map<String, dynamic>? seenData;
+      FormData? seenForm;
       final dio = _mockDio((options) {
         seenPath = options.path;
-        seenData = options.data as Map<String, dynamic>?;
         if (options.path.contains('auth/login')) {
           return _ok(
             options,
-            'Ok',
+            'Ok.',
             headers: {
               'set-cookie': ['SID=s1; path=/'],
             },
           );
         }
+        seenForm = options.data as FormData?;
         return _ok(options, 'Ok.');
       });
       final client = QbittorrentClient(_server(), dio: dio);
@@ -208,23 +208,25 @@ void main() {
         isTrue,
       );
       expect(seenPath, 'api/v2/torrents/add');
-      expect(seenData?['urls'], 'magnet:?xt=urn:btih:abc');
-      expect(seenData?['savepath'], '/data/dl');
+      final fields = Map.fromEntries(seenForm!.fields);
+      expect(fields['urls'], 'magnet:?xt=urn:btih:abc');
+      expect(fields['savepath'], '/data/dl');
     });
   });
 
   group('TransmissionClient task parsing', () {
-    test('torrent-get maps status, eta, download dir, hash', () async {
+    test('torrent_get maps status, eta, download dir, hash', () async {
       final dio = _mockDio((options) {
         final data = options.data as Map<String, dynamic>;
-        if (data['method'] == 'torrent-get') {
+        if (data['method'] == 'torrent_get') {
           expect(
-            (data['arguments'] as Map)['fields'],
-            containsAll(['eta', 'downloadDir', 'hashString']),
+            (data['params'] as Map)['fields'],
+            containsAll(['eta', 'download_dir', 'hash_string']),
           );
           return _ok(options, {
-            'result': 'success',
-            'arguments': {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'result': {
               'torrents': [
                 _trJson(),
                 _trJson(
@@ -244,8 +246,9 @@ void main() {
           });
         }
         return _ok(options, {
-          'result': 'success',
-          'arguments': <String, dynamic>{},
+          'jsonrpc': '2.0',
+          'id': 1,
+          'result': <String, dynamic>{},
         });
       });
       final client = TransmissionClient(
@@ -287,8 +290,9 @@ void main() {
             }
             h.resolve(
               _ok(options, {
-                'result': 'success',
-                'arguments': <String, dynamic>{},
+                'jsonrpc': '2.0',
+                'id': 1,
+                'result': <String, dynamic>{},
               }),
             );
           },
@@ -303,30 +307,33 @@ void main() {
       expect(calls, 2);
     });
 
-    test('torrent-add passes download-dir and setLocation works', () async {
+    test('torrent_add passes download_dir and setLocation works', () async {
       Map<String, dynamic>? seenAdd;
       Map<String, dynamic>? seenSet;
       final dio = _mockDio((options) {
         final data = options.data as Map<String, dynamic>;
-        if (data['method'] == 'torrent-add') {
-          seenAdd = data['arguments'] as Map<String, dynamic>;
+        if (data['method'] == 'torrent_add') {
+          seenAdd = data['params'] as Map<String, dynamic>;
           return _ok(options, {
-            'result': 'success',
-            'arguments': {
-              'torrent-added': {'id': 42},
+            'jsonrpc': '2.0',
+            'id': 1,
+            'result': {
+              'torrent_added': {'id': 42},
             },
           });
         }
-        if (data['method'] == 'torrent-set-location') {
-          seenSet = data['arguments'] as Map<String, dynamic>;
+        if (data['method'] == 'torrent_set_location') {
+          seenSet = data['params'] as Map<String, dynamic>;
           return _ok(options, {
-            'result': 'success',
-            'arguments': <String, dynamic>{},
+            'jsonrpc': '2.0',
+            'id': 1,
+            'result': <String, dynamic>{},
           });
         }
         return _ok(options, {
-          'result': 'success',
-          'arguments': <String, dynamic>{},
+          'jsonrpc': '2.0',
+          'id': 1,
+          'result': <String, dynamic>{},
         });
       });
       final client = TransmissionClient(
@@ -340,7 +347,7 @@ void main() {
         ),
         '42',
       );
-      expect(seenAdd?['download-dir'], '/data/new');
+      expect(seenAdd?['download_dir'], '/data/new');
       await client.setLocation([42], '/data/moved', move: true);
       expect(seenSet?['location'], '/data/moved');
       expect(seenSet?['move'], isTrue);
@@ -485,17 +492,19 @@ void main() {
         );
       }
       final data = options.data as Map<String, dynamic>;
-      if (data['method'] == 'torrent-get') {
+      if (data['method'] == 'torrent_get') {
         return _ok(options, {
-          'result': 'success',
-          'arguments': {
+          'jsonrpc': '2.0',
+          'id': 1,
+          'result': {
             'torrents': [_trJson()],
           },
         });
       }
       return _ok(options, {
-        'result': 'success',
-        'arguments': <String, dynamic>{},
+        'jsonrpc': '2.0',
+        'id': 1,
+        'result': <String, dynamic>{},
       });
     });
 
@@ -612,18 +621,20 @@ void main() {
             dio: _mockDio((options) {
               final data = options.data as Map<String, dynamic>;
               seen.add('tr:${data['method']}');
-              if (data['method'] == 'torrent-get') {
+              if (data['method'] == 'torrent_get') {
                 return _ok(options, {
-                  'result': 'success',
-                  'arguments': {
+                  'jsonrpc': '2.0',
+                  'id': 1,
+                  'result': {
                     'torrents': [_trJson()],
                   },
                 });
               }
               return _ok(options, {
-                'result': 'success',
-                'arguments': {
-                  'torrent-added': {'id': 7},
+                'jsonrpc': '2.0',
+                'id': 1,
+                'result': {
+                  'torrent_added': {'id': 7},
                 },
               });
             }),
@@ -663,9 +674,9 @@ void main() {
           (t) => t.source == DownloadSource.transmission,
         );
         await repo.pauseTask(trTask);
-        expect(seen, contains('tr:torrent-stop'));
+        expect(seen, contains('tr:torrent_stop'));
         await repo.retryTask(trTask);
-        expect(seen, contains('tr:torrent-start'));
+        expect(seen, contains('tr:torrent_start'));
       },
     );
 

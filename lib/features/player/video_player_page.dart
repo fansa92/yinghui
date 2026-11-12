@@ -192,6 +192,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       }
       if (!mounted) return;
       setState(() => _loading = false);
+      // Tell Emby playback started (creates the server session and
+      // the resume entry). Best effort — the repo swallows failures.
+      unawaited(
+        widget.repo.reportPlaybackStarted(
+          widget.item,
+          playMethod: result.decision.isDirect ? 'DirectPlay' : 'Transcode',
+        ),
+      );
       _scheduleHide();
       _maybeShowShortcutsHint();
     } catch (e) {
@@ -473,11 +481,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Future<void> _reportFinalPosition() async {
     try {
-      await widget.repo.reportProgress(
-        widget.item,
-        _service.position,
-        isPaused: true,
-      );
+      // Playback ended: report Stopped to Emby (closes the session)
+      // and save the local resume position.
+      await widget.repo.reportPlaybackStopped(widget.item, _service.position);
     } catch (_) {
       // Best effort on dispose.
     }

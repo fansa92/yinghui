@@ -298,13 +298,21 @@ void main() {
           client.subtitleUrl('m1', withDelivery),
           'https://cf.imetyou.top/Videos/m1/ms1/Subtitles/2/Stream.srt',
         );
-        const built = SubtitleTrackInfo(index: 3, codec: 'ass');
-        // No media source id: the empty segment is omitted, not left as '//'.
+        const built = SubtitleTrackInfo(
+          index: 3,
+          codec: 'ass',
+          mediaSourceId: 'ms1',
+        );
+        // With a media source id the fallback URL carries it.
         expect(
           client.subtitleUrl('m1', built),
-          'https://cf.imetyou.top/Videos/m1/Subtitles/3/Stream.srt'
+          'https://cf.imetyou.top/Videos/m1/ms1/Subtitles/3/Stream.srt'
           '?api_key=emby-token',
         );
+        // Without one, no fallback URL is emitted at all (M1: the
+        // sourceless route 404s).
+        const noSource = SubtitleTrackInfo(index: 3, codec: 'ass');
+        expect(client.subtitleUrl('m1', noSource), isEmpty);
       },
     );
 
@@ -345,7 +353,7 @@ void main() {
       expect(
         seen,
         containsAll([
-          'POST /Users/user-1/Items/m1/PlayingItems/m1/Progress',
+          'POST /Sessions/Playing/Progress',
           'POST /Users/user-1/PlayedItems/m1',
         ]),
       );
