@@ -62,9 +62,12 @@ class QbittorrentClient {
   Map<String, String> get _cookieHeader =>
       _sid == null ? {} : {'Cookie': 'SID=$_sid'};
 
-  /// POST /api/v2/auth/login. Returns true on "Ok." — qB answers with
-  /// a trailing dot (the wiki's login example shows Content-Length: 3).
-  /// Throws [ApiException] on bad credentials.
+  /// POST /api/v2/auth/login. qB 4.x answers 200 "Ok." (the wiki's login
+  /// example shows Content-Length: 3); qB 5.x answers 204 No Content
+  /// with an empty body. Any 2xx here is a successful login — bad
+  /// credentials come back 401, which Dio already turned into an
+  /// exception before we get here. Throws [ApiException] on bad
+  /// credentials.
   Future<bool> login() async {
     final ok = await _guard(() async {
       final response = await dio.post<String>(
@@ -77,10 +80,9 @@ class QbittorrentClient {
         final match = RegExp(r'SID=([^;]+)').firstMatch(cookie);
         if (match != null) _sid = match.group(1);
       }
-      // "Ok." (3 bytes) is the documented success body; accept a
-      // bare "Ok" too, defensively, and ignore surrounding whitespace.
+      // "Ok." (qB 4.x) or an empty body (qB 5.x, 204 No Content).
       final body = (response.data ?? '').trim();
-      return body == 'Ok.' || body == 'Ok';
+      return body.isEmpty || body == 'Ok.' || body == 'Ok';
     }, 'login');
     if (!ok) throw ApiException('qBittorrent login failed: bad credentials');
     return true;

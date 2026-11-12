@@ -163,6 +163,31 @@ void main() {
       expect(await client.login(), isTrue);
     });
 
+    test('empty body with 204 (qB 5.x) logs in', () async {
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  statusCode: 204,
+                  data: '',
+                  headers: Headers.fromMap({
+                    'set-cookie': ['SID=abc123; path=/'],
+                  }),
+                ),
+              );
+            },
+          ),
+        );
+      final client = QbittorrentClient(
+        _server(type: ServerType.qbittorrent, host: 'https://qb.example.com/'),
+        dio: dio,
+      );
+      expect(await client.login(), isTrue);
+    });
+
     test('"Fails." still throws bad credentials', () async {
       final client = QbittorrentClient(
         _server(type: ServerType.qbittorrent, host: 'https://qb.example.com/'),
