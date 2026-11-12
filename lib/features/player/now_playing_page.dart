@@ -410,6 +410,34 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     );
   }
 
+  /// Playback-failure banner: audio errors used to be silent, so a
+  /// failed open looked like "tapping play does nothing". Shows the
+  /// backend error (e.g. the missing-libmpv message) with a retry
+  /// that re-opens the current track.
+  Widget _errorBanner() {
+    final player = widget.player;
+    return Card(
+      color: YingHuiTheme.errorRed.withValues(alpha: 0.15),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.error_outline, color: YingHuiTheme.errorRed),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '无法播放：\n${player.lastError}',
+                style: const TextStyle(color: YingHuiTheme.errorRed),
+              ),
+            ),
+            TextButton(onPressed: player.togglePlay, child: const Text('重试')),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Phone layout: the current single column, unchanged.
   Widget _body(Track track) {
     final style = _style;
@@ -417,6 +445,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
       controller: _scrollController,
       padding: const EdgeInsets.all(24),
       children: [
+        if (widget.player.lastError != null) ...[
+          _errorBanner(),
+          const SizedBox(height: 12),
+        ],
         _coverHeader(track),
         const SizedBox(height: 24),
         _seekAndControls(track),
@@ -456,6 +488,10 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (widget.player.lastError != null) ...[
+                    _errorBanner(),
+                    const SizedBox(height: 12),
+                  ],
                   _coverHeader(track, coverSize: 340),
                   const SizedBox(height: 24),
                   _seekAndControls(track),

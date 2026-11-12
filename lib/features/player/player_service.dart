@@ -159,16 +159,36 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
   Duration get position => _position;
   Duration get duration => _duration;
 
+  /// The last backend init/open failure, if any. Audio failures used
+  /// to be fully silent (no try/catch in [_openCurrent], fire-and-
+  /// forget call sites), so a missing native libmpv looked like
+  /// "tapping play does nothing". The now-playing page shows this
+  /// instead. Cleared by a successful open.
+  String? _lastError;
+  String? get lastError => _lastError;
+
+  /// Record a backend failure for the UI (and notify, so the error
+  /// banner appears immediately).
+  void _recordError(Object e) {
+    _lastError = '$e';
+    notifyListeners();
+  }
+
   /// Playback volume, 0.0 (muted) to 1.0 (full). Defaults to full.
   double get volume => _backend?.volume ?? _volume;
   double _volume = 1.0;
 
   /// Sets the volume on the backend (creating it if needed) and
   /// keeps it for a later open, so a volume set before the first
-  /// play is not lost.
+  /// play is not lost. A backend-init failure is recorded as
+  /// [lastError] instead of throwing into the slider callback.
   Future<void> setVolume(double volume) async {
     _volume = volume.clamp(0.0, 1.0);
-    await _ensureBackend().setVolume(_volume);
+    try {
+      await _ensureBackend().setVolume(_volume);
+    } catch (e) {
+      _recordError(e);
+    }
     notifyListeners();
   }
 
@@ -212,15 +232,25 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     _duration = track.durationSeconds > 0
         ? Duration(seconds: track.durationSeconds)
         : Duration.zero;
-    await _ensureBackend().open(url);
-    _hasOpened = true;
-    if (_pendingSeek != null) {
-      final target = _clampPosition(_pendingSeek!);
-      _pendingSeek = null;
-      await _ensureBackend().seek(target);
-      _position = target;
+    try {
+      await _ensureBackend().open(url);
+      _hasOpened = true;
+      if (_pendingSeek != null) {
+        final target = _clampPosition(_pendingSeek!);
+        _pendingSeek = null;
+        await _ensureBackend().seek(target);
+        _position = target;
+      }
+      await history?.recordStart(track);
+    } catch (e) {
+      // Backend init (missing native libmpv) or open failed: record
+      // it for the UI instead of throwing into a fire-and-forget
+      // caller. _hasOpened stays false so a later retry re-opens.
+      _hasOpened = false;
+      _recordError(e);
+      return false;
     }
-    await history?.recordStart(track);
+    _lastError = null;
     notifyListeners();
     return true;
   }
@@ -267,7 +297,11 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     _index = startIndex.clamp(0, tracks.length - 1);
     if (await _openCurrent()) {
       await _coordinator.musicStarted();
-      await _ensureBackend().play();
+      try {
+        await _ensureBackend().play();
+      } catch (e) {
+        _recordError(e);
+      }
     }
   }
 
@@ -275,22 +309,28 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
 
   Future<void> togglePlay() async {
     if (!hasTrack) return;
-    final backend = _ensureBackend();
-    if (!_hasOpened) {
-      // Restored session (or first play): open the stream first,
-      // seeking to the restored position, then play.
-      if (await _openCurrent()) {
+    try {
+      final backend = _ensureBackend();
+      if (!_hasOpened) {
+        // Restored session (or first play): open the stream first,
+        // seeking to the restored position, then play.
+        if (await _openCurrent()) {
+          await _coordinator.musicStarted();
+          await backend.play();
+        }
+        return;
+      }
+      if (_playing) {
+        await backend.pause();
+        await _savePosition();
+      } else {
         await _coordinator.musicStarted();
         await backend.play();
       }
-      return;
-    }
-    if (_playing) {
-      await backend.pause();
-      await _savePosition();
-    } else {
-      await _coordinator.musicStarted();
-      await backend.play();
+    } catch (e) {
+      // Backend init failed (missing native libmpv) or play() threw:
+      // record it for the UI instead of an unhandled async error.
+      _recordError(e);
     }
   }
 
@@ -307,9 +347,13 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     }
     await _savePosition();
     _index++;
-    if (await _openCurrent()) {
-      await _coordinator.musicStarted();
-      await _ensureBackend().play();
+    try {
+      if (await _openCurrent()) {
+        await _coordinator.musicStarted();
+        await _ensureBackend().play();
+      }
+    } catch (e) {
+      _recordError(e);
     }
   }
 
@@ -321,15 +365,24 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     if (_index <= 0) return;
     await _savePosition();
     _index--;
-    if (await _openCurrent()) {
-      await _coordinator.musicStarted();
-      await _ensureBackend().play();
+    try {
+      if (await _openCurrent()) {
+        await _coordinator.musicStarted();
+        await _ensureBackend().play();
+      }
+    } catch (e) {
+      _recordError(e);
     }
   }
 
   Future<void> seek(Duration position) async {
     final clamped = _clampPosition(position);
-    await _ensureBackend().seek(clamped);
+    try {
+      await _ensureBackend().seek(clamped);
+    } catch (e) {
+      _recordError(e);
+      return;
+    }
     _position = clamped;
     notifyListeners();
   }

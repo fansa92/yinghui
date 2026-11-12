@@ -21,6 +21,11 @@ dependencies:
   media_kit: ^1.2.0
   # P3: video picture for the media_kit Player.
   media_kit_video: ^1.2.0
+  # Native libmpv for media_kit (required — media_kit itself is pure
+  # Dart; without this the APK ships no libmpv.so and the first play
+  # dies in MediaKit.ensureInitialized()). The video libs also cover
+  # audio; do not mix with media_kit_libs_audio.
+  media_kit_libs_video: ^1.0.7
   cached_network_image: ^3.4.0
   flutter_cache_manager: ^3.4.0
   # P5: Settings (theme mode, seed colour, dynamic colour, cache size).
