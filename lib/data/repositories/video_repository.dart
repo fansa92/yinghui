@@ -1,0 +1,390 @@
+import '../../core/errors.dart';
+import '../../core/models/server.dart';
+import '../api/emby_client.dart';
+import '../db/app_database.dart';
+import '../models/track.dart';
+import '../models/video_detail.dart';
+import '../models/video_item.dart';
+import 'fake_repos.dart';
+import 'playback_decision.dart';
+import 'playback_store.dart';
+import 'server_store.dart';
+
+/// What the Video tab needs, regardless of where the data comes from.
+abstract class VideoRepository {
+  /// True when at least one Emby server has a username + token.
+  bool get hasCredentials;
+
+  Future<List<LibraryView>> libraries();
+  Future<List<VideoItem>> continueWatching();
+  Future<List<VideoItem>> recentlyAdded();
+  Future<List<VideoItem>> movies({int limit = 20, int offset = 0});
+  Future<List<VideoItem>> series({int limit = 20, int offset = 0});
+  Future<List<VideoItem>> search(String query);
+  Future<SeriesDetail> seriesDetail(String seriesId, String serverId);
+  Future<VideoDetail> itemDetail(String itemId, String serverId);
+
+  /// Direct-play vs transcode decision for one item, as a playable URL.
+  Future<({PlaybackDecision decision, String url})> decidePlayback(
+    VideoItem item, {
+    VideoQuality quality = VideoQuality.direct,
+    SubtitleTrackInfo? subtitle,
+  });
+
+  /// Stream URL for an external subtitle track (direct play only;
+  /// transcodes burn the subtitle in via SubtitleStreamIndex).
+  String subtitleUrlFor(VideoItem item, SubtitleTrackInfo track);
+
+  Future<void> reportProgress(
+    VideoItem item,
+    Duration position, {
+    bool isPaused = false,
+  });
+  Future<void> markPlayed(VideoItem item);
+}
+
+/// Real video repository: Emby servers, merged.
+///
+/// One [EmbyClient] per credentialed Emby server. Results are merged
+/// across servers and deduped by title+year; a server that is offline
+/// throws per-server [ApiException], which is caught here so one dead
+/// server never blanks the whole list. With no credentialed Emby server
+/// the P0 fake repo is the fallback (the Video page still shows an
+/// explicit empty state instead of silently presenting demo data).
+class RealVideoRepository implements VideoRepository {
+  RealVideoRepository({
+    required this.store,
+    required AppDatabase database,
+    EmbyClient Function(Server server)? clientFactory,
+  }) : _playback = PlaybackStore(database),
+       _clientFactory = clientFactory ?? ((s) => EmbyClient(s));
+
+  final ServerStore store;
+  final PlaybackStore _playback;
+  final EmbyClient Function(Server server) _clientFactory;
+
+  /// One client per credentialed server, cached across calls. A fresh
+  /// client per access would throw away the per-client /Users/Me cache
+  /// and re-fetch it on every repository call; the cache is keyed by
+  /// server id and rebuilt when the server's host or credentials
+  /// change.
+  final Map<String, (String fingerprint, EmbyClient client)> _clientCache = {};
+
+  List<Server> get _credentialedEmby => store.servers
+      .where(
+        (s) =>
+            s.type == ServerType.emby &&
+            s.username.isNotEmpty &&
+            s.token.isNotEmpty,
+      )
+      .toList();
+
+  @override
+  bool get hasCredentials => _credentialedEmby.isNotEmpty;
+
+  List<(Server, EmbyClient)> get _clients {
+    final servers = _credentialedEmby;
+    final out = <(Server, EmbyClient)>[];
+    final seen = <String>{};
+    for (final s in servers) {
+      seen.add(s.id);
+      final fingerprint = '${s.host}|${s.username}|${s.token}';
+      final cached = _clientCache[s.id];
+      if (cached != null && cached.$1 == fingerprint) {
+        out.add((s, cached.$2));
+      } else {
+        final client = _clientFactory(s);
+        _clientCache[s.id] = (fingerprint, client);
+        out.add((s, client));
+      }
+    }
+    _clientCache.removeWhere((id, _) => !seen.contains(id));
+    return out;
+  }
+
+  EmbyClient? _clientFor(String serverId) {
+    for (final (server, client) in _clients) {
+      if (server.id == serverId) return client;
+    }
+    return null;
+  }
+
+  /// Run [fetch] on every credentialed server, skipping servers that
+  /// fail, and merge + dedupe the results by [key].
+  Future<List<T>> _merged<T>(
+    Future<List<T>> Function(EmbyClient client) fetch,
+    String Function(T item) key,
+  ) async {
+    final out = <T>[];
+    final seen = <String>{};
+    for (final (_, client) in _clients) {
+      List<T> items;
+      try {
+        items = await fetch(client);
+      } on ApiException {
+        continue;
+      }
+      for (final item in items) {
+        if (seen.add(key(item))) out.add(item);
+      }
+    }
+    return out;
+  }
+
+  static String _videoKey(VideoItem v) =>
+      '${v.title.toLowerCase()}|${v.year ?? ''}';
+
+  @override
+  Future<List<LibraryView>> libraries() async {
+    if (!hasCredentials) return [];
+    final out = <LibraryView>[];
+    for (final (_, client) in _clients) {
+      try {
+        out.addAll(await client.getUserViews());
+      } on ApiException {
+        continue;
+      }
+    }
+    return out;
+  }
+
+  @override
+  Future<List<VideoItem>> continueWatching() async {
+    if (!hasCredentials) return FakeVideoRepo.continueWatching;
+    return _merged<VideoItem>((c) => c.getResumeItems(), _videoKey);
+  }
+
+  @override
+  Future<List<VideoItem>> recentlyAdded() async {
+    if (!hasCredentials) return FakeVideoRepo.recentlyAdded;
+    return _merged<VideoItem>((c) async {
+      final uid = await c.userId();
+      return c.getItems(
+        includeItemTypes: 'Movie,Series',
+        userId: uid,
+        sortBy: 'DateCreated',
+        sortOrder: 'Descending',
+      );
+    }, _videoKey);
+  }
+
+  @override
+  Future<List<VideoItem>> movies({int limit = 20, int offset = 0}) async {
+    if (!hasCredentials) {
+      return FakeVideoRepo.recentlyAdded
+          .where((v) => v.type == 'Movie')
+          .toList();
+    }
+    return _merged<VideoItem>((c) async {
+      final uid = await c.userId();
+      return c.getItems(
+        includeItemTypes: 'Movie',
+        userId: uid,
+        sortBy: 'SortName',
+        sortOrder: 'Ascending',
+        limit: limit,
+        startIndex: offset,
+      );
+    }, _videoKey);
+  }
+
+  @override
+  Future<List<VideoItem>> series({int limit = 20, int offset = 0}) async {
+    if (!hasCredentials) {
+      return FakeVideoRepo.recentlyAdded
+          .where((v) => v.type == 'Series')
+          .toList();
+    }
+    return _merged<VideoItem>((c) async {
+      final uid = await c.userId();
+      return c.getItems(
+        includeItemTypes: 'Series',
+        userId: uid,
+        sortBy: 'SortName',
+        sortOrder: 'Ascending',
+        limit: limit,
+        startIndex: offset,
+      );
+    }, _videoKey);
+  }
+
+  @override
+  Future<List<VideoItem>> search(String query) async {
+    if (!hasCredentials) {
+      final q = query.toLowerCase();
+      return [
+        ...FakeVideoRepo.continueWatching,
+        ...FakeVideoRepo.recentlyAdded,
+      ].where((v) => v.title.toLowerCase().contains(q)).toList();
+    }
+    final out = <VideoItem>[];
+    final seen = <String>{};
+    for (final (_, client) in _clients) {
+      try {
+        final uid = await client.userId();
+        final items = await client.getItems(
+          includeItemTypes: 'Movie,Series,Episode',
+          userId: uid,
+          searchTerm: query,
+          sortBy: 'SortName',
+          sortOrder: 'Ascending',
+          limit: 20,
+        );
+        for (final item in items) {
+          if (seen.add(_videoKey(item))) out.add(item);
+        }
+      } on ApiException {
+        continue;
+      }
+    }
+    return out;
+  }
+
+  @override
+  Future<SeriesDetail> seriesDetail(String seriesId, String serverId) async {
+    final client = _clientFor(serverId);
+    if (client == null) {
+      final fake = FakeVideoRepo.recentlyAdded.firstWhere(
+        (v) => v.id == seriesId,
+        orElse: () => FakeVideoRepo.recentlyAdded.first,
+      );
+      return SeriesDetail(series: fake);
+    }
+    final detail = await client.getItemDetail(seriesId);
+    final seasons = await client.getSeasons(seriesId);
+    final episodes = await client.getEpisodes(seriesId);
+    // The server does not guarantee order: seasons by IndexNumber
+    // (Specials first), episodes by season then episode number, so the
+    // detail page never shows E2 before E1.
+    seasons.sort(
+      (a, b) => (a.indexNumber ?? 1 << 30).compareTo(b.indexNumber ?? 1 << 30),
+    );
+    episodes.sort((a, b) {
+      final season = (a.seasonNumber ?? 1 << 30).compareTo(
+        b.seasonNumber ?? 1 << 30,
+      );
+      if (season != 0) return season;
+      return (a.episodeNumber ?? 1 << 30).compareTo(b.episodeNumber ?? 1 << 30);
+    });
+    return SeriesDetail(
+      series: detail.item,
+      seasons: seasons,
+      episodes: episodes,
+    );
+  }
+
+  @override
+  Future<VideoDetail> itemDetail(String itemId, String serverId) async {
+    final client = _clientFor(serverId);
+    if (client == null) {
+      final fake =
+          [
+            ...FakeVideoRepo.continueWatching,
+            ...FakeVideoRepo.recentlyAdded,
+          ].firstWhere(
+            (v) => v.id == itemId,
+            orElse: () => FakeVideoRepo.recentlyAdded.first,
+          );
+      return VideoDetail(item: fake);
+    }
+    final detail = await client.getItemDetail(itemId);
+    // Media info (video/audio/subtitle streams) comes from
+    // PlaybackInfo, not from the detail endpoint. A failure here must
+    // not break the detail page — it just shows "暂无媒体信息".
+    List<MediaSourceInfo> sources = const [];
+    try {
+      sources = await client.getPlaybackInfo(itemId);
+    } on ApiException {
+      sources = const [];
+    }
+    if (detail.item.type == 'Series') {
+      final seasons = await client.getSeasons(itemId);
+      return VideoDetail(
+        item: detail.item,
+        seasons: seasons,
+        mediaSources: sources,
+        subtitleTracks: detail.subtitleTracks,
+      );
+    }
+    return VideoDetail(
+      item: detail.item,
+      mediaSources: sources,
+      subtitleTracks: detail.subtitleTracks,
+    );
+  }
+
+  @override
+  Future<({PlaybackDecision decision, String url})> decidePlayback(
+    VideoItem item, {
+    VideoQuality quality = VideoQuality.direct,
+    SubtitleTrackInfo? subtitle,
+  }) async {
+    final client = _clientFor(item.serverId);
+    if (client == null) {
+      throw ApiException('No Emby client for server ${item.serverId}');
+    }
+    final sources = await client.getPlaybackInfo(item.id);
+    if (sources.isEmpty) {
+      throw ApiException('Emby returned no media sources for ${item.title}');
+    }
+    final source = sources.first;
+    final decision = PlaybackDecider.decide(
+      source,
+      quality: quality,
+      subtitle: subtitle,
+    );
+    final url = decision.isDirect
+        ? client.videoStreamUrl(item.id)
+        : client.transcodeUrl(
+            item.id,
+            maxStreamingBitrate: decision.maxStreamingBitrate,
+            subtitleStreamIndex: decision.subtitleStreamIndex,
+          );
+    return (decision: decision, url: url);
+  }
+
+  @override
+  String subtitleUrlFor(VideoItem item, SubtitleTrackInfo track) {
+    final client = _clientFor(item.serverId);
+    if (client == null) return '';
+    return client.subtitleUrl(item.id, track);
+  }
+
+  Track _trackFor(VideoItem item) => Track(
+    id: item.id,
+    title: item.title,
+    artist: item.sourceLabel,
+    durationSeconds: item.durationSeconds,
+    serverId: item.serverId,
+  );
+
+  @override
+  Future<void> reportProgress(
+    VideoItem item,
+    Duration position, {
+    bool isPaused = false,
+  }) async {
+    final client = _clientFor(item.serverId);
+    if (client != null) {
+      try {
+        await client.reportProgress(item.id, position, isPaused: isPaused);
+      } on ApiException {
+        // Server unreachable: the local resume position still saves.
+      }
+    }
+    await _playback.updatePosition(_trackFor(item), position.inSeconds);
+  }
+
+  @override
+  Future<void> markPlayed(VideoItem item) async {
+    final client = _clientFor(item.serverId);
+    if (client != null) {
+      try {
+        await client.markPlayed(item.id);
+      } on ApiException {
+        // Server unreachable: local history still updates.
+      }
+    }
+    await _playback.updatePosition(_trackFor(item), item.durationSeconds);
+  }
+}

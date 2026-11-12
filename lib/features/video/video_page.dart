@@ -1,0 +1,497 @@
+import 'package:flutter/material.dart';
+
+import '../../core/app_state.dart';
+import '../../core/settings.dart';
+import '../../core/theme.dart';
+import '../../core/widgets/desktop_layout.dart';
+import '../../core/widgets/state_views.dart';
+import '../../data/models/video_item.dart';
+import '../../data/repositories/playback_store.dart';
+import '../../data/repositories/video_repository.dart';
+import '../../data/repositories/server_store.dart';
+import '../servers/servers_page.dart';
+import 'poster_image.dart';
+import 'video_detail_page.dart';
+
+/// Video (Emby): hero poster, Continue Watching 2:3 posters with
+/// progress, Recently Added, Movies/Series grids.
+///
+/// Wired to the real Emby API through [VideoRepository]; with no Emby
+/// credentials it shows an explicit empty state instead of silently
+/// presenting demo data.
+class VideoPage extends StatefulWidget {
+  const VideoPage({
+    super.key,
+    required this.repo,
+    required this.store,
+    required this.history,
+    required this.settings,
+    this.appState,
+  });
+
+  final VideoRepository repo;
+  final ServerStore store;
+  final PlaybackStore history;
+  final SettingsService settings;
+  final AppStateStore? appState;
+
+  @override
+  State<VideoPage> createState() => _VideoPageState();
+}
+
+class _VideoPageState extends State<VideoPage> {
+  static const _filters = ['Movies', 'Series'];
+  static const _pageSize = 20;
+
+  String _filter = 'Movies';
+  final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
+
+  List<VideoItem> _continueWatching = [];
+  List<VideoItem> _recentlyAdded = [];
+  List<VideoItem> _movies = [];
+  List<VideoItem> _series = [];
+  List<VideoItem>? _searchResult;
+
+  bool _loading = false;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  String? _error;
+
+  /// The store loads asynchronously: when an Emby account appears
+  /// after this page first built, the lists load instead of staying on
+  /// the empty state until the next tab switch.
+  bool _hadCredentials = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    _hadCredentials = widget.repo.hasCredentials;
+    widget.store.addListener(_onStoreChanged);
+    if (_hadCredentials) {
+      _loadInitial();
+    }
+  }
+
+  void _onStoreChanged() {
+    final now = widget.repo.hasCredentials;
+    if (now &&
+        !_hadCredentials &&
+        !_loading &&
+        _continueWatching.isEmpty &&
+        _movies.isEmpty &&
+        _error == null) {
+      _loadInitial();
+    }
+    _hadCredentials = now;
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_onStoreChanged);
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_searchResult != null || _loadingMore || !_hasMore) return;
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 400) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadInitial() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final continuing = await widget.repo.continueWatching();
+      final recent = await widget.repo.recentlyAdded();
+      final movies = await widget.repo.movies(limit: _pageSize);
+      final series = await widget.repo.series(limit: _pageSize);
+      if (!mounted) return;
+      setState(() {
+        _continueWatching = continuing;
+        _recentlyAdded = recent;
+        _movies = movies;
+        _series = series;
+        _hasMore = (_filter == 'Movies' ? movies : series).length >= _pageSize;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    setState(() => _loadingMore = true);
+    try {
+      final more = _filter == 'Movies'
+          ? await widget.repo.movies(limit: _pageSize, offset: _movies.length)
+          : await widget.repo.series(limit: _pageSize, offset: _series.length);
+      if (!mounted) return;
+      setState(() {
+        if (_filter == 'Movies') {
+          _movies = [..._movies, ...more];
+        } else {
+          _series = [..._series, ...more];
+        }
+        _hasMore = more.length >= _pageSize;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  Future<void> _search(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) {
+      setState(() => _searchResult = null);
+      return;
+    }
+    widget.settings.recordSearch(q);
+    setState(() => _loading = true);
+    try {
+      final result = await widget.repo.search(q);
+      if (!mounted) return;
+      setState(() {
+        _searchResult = result;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  void _openDetail(VideoItem item) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VideoDetailPage(
+          item: item,
+          repo: widget.repo,
+          history: widget.history,
+          settings: widget.settings,
+          appState: widget.appState,
+        ),
+      ),
+    );
+  }
+
+  void _openServers() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ServersPage(store: widget.store)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.repo.hasCredentials) return _emptyState();
+    if (_loading && _continueWatching.isEmpty && _searchResult == null) {
+      return const LoadingView();
+    }
+    if (_error != null) {
+      return ErrorView(
+        message: 'Could not load video:\n$_error',
+        onRetry: _loadInitial,
+      );
+    }
+    final hero = _continueWatching.isNotEmpty
+        ? _continueWatching.first
+        : (_recentlyAdded.isNotEmpty ? _recentlyAdded.first : null);
+    return CenteredContent(
+      child: RefreshIndicator(
+        onRefresh: _loadInitial,
+        child: ListView(
+          controller: _scrollController,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search movies and shows',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            _search('');
+                          },
+                        ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  // Theme-aware: the old YingHuiTheme.card (#1A1C22) is a
+                  // dark box that does not belong in light mode.
+                  fillColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+                textInputAction: TextInputAction.search,
+                onSubmitted: _search,
+                onChanged: (value) {
+                  if (value.isEmpty) _search('');
+                  setState(() {});
+                },
+              ),
+            ),
+            if (_searchResult != null) ...[
+              if (_searchResult!.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: Text('No results.')),
+                ),
+              ..._searchResult!.map(_searchTile),
+            ] else ...[
+              if (hero != null) _heroCard(hero),
+              const SizedBox(height: 16),
+              if (_continueWatching.isNotEmpty) ...[
+                const Text(
+                  'Continue Watching',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 250,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _continueWatching.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 12),
+                    itemBuilder: (context, i) {
+                      final v = _continueWatching[i];
+                      return SizedBox(
+                        width: 120,
+                        child: InkWell(
+                          onTap: () => _openDetail(v),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              PosterImage(posterUrl: v.posterUrl),
+                              const SizedBox(height: 4),
+                              LinearProgressIndicator(
+                                value: v.progress,
+                                // Green = playback progress (amber is
+                                // reserved for downloads). Track colour
+                                // follows the theme, not hard-coded white.
+                                color: Theme.of(context).colorScheme.primary,
+                                backgroundColor: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.12),
+                                minHeight: 3,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                v.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              Text(
+                                '${(v.progress * 100).toStringAsFixed(0)}% watched',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: YingHuiTheme.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              const Text(
+                'Recently Added',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ..._recentlyAdded.map(
+                (v) => ListTile(
+                  leading: PosterImage(
+                    posterUrl: v.posterUrl,
+                    width: 48,
+                    height: 72,
+                    borderRadius: 8,
+                  ),
+                  title: Text(v.title),
+                  subtitle: Text(
+                    '${v.year ?? ''} · ${v.type} · ${v.durationText}',
+                  ),
+                  trailing: Text(
+                    v.sourceLabel,
+                    style: const TextStyle(color: YingHuiTheme.textMuted),
+                  ),
+                  onTap: () => _openDetail(v),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _filters.map((f) {
+                    final selected = f == _filter;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(f),
+                        selected: selected,
+                        onSelected: (_) => setState(() {
+                          _filter = f;
+                          _hasMore =
+                              (f == 'Movies' ? _movies : _series).length >=
+                              _pageSize;
+                        }),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...(_filter == 'Movies' ? _movies : _series).map(_gridTile),
+              if (_loadingMore)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              const SizedBox(height: 16),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _heroCard(VideoItem hero) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openDetail(hero),
+        child: Stack(
+          children: [
+            SizedBox(
+              height: 220,
+              width: double.infinity,
+              child: hero.backdropUrl != null
+                  ? Image.network(
+                      hero.backdropUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _heroPlaceholder(),
+                    )
+                  : _heroPlaceholder(),
+            ),
+            Positioned.fill(
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black87],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 16,
+              bottom: 16,
+              right: 16,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hero.title,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    '${hero.year ?? ''} · ${hero.durationText} · ${hero.sourceLabel}',
+                    style: const TextStyle(color: YingHuiTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: () => _openDetail(hero),
+                    icon: const Icon(Icons.play_arrow),
+                    label: Text(
+                      hero.playbackPositionSeconds > 0
+                          ? 'Resume from ${hero.positionText}'
+                          : 'Play',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _heroPlaceholder() {
+    return Container(
+      color: YingHuiTheme.primaryGreen.withValues(alpha: 0.2),
+      child: const Center(
+        child: Icon(Icons.movie, size: 64, color: YingHuiTheme.primaryGreen),
+      ),
+    );
+  }
+
+  Widget _gridTile(VideoItem v) {
+    return ListTile(
+      leading: PosterImage(
+        posterUrl: v.posterUrl,
+        width: 48,
+        height: 72,
+        borderRadius: 8,
+      ),
+      title: Text(v.title),
+      subtitle: Text('${v.year ?? ''} · ${v.type} · ${v.durationText}'),
+      trailing: Text(
+        v.sourceLabel,
+        style: const TextStyle(color: YingHuiTheme.textMuted),
+      ),
+      onTap: () => _openDetail(v),
+    );
+  }
+
+  Widget _searchTile(VideoItem v) => _gridTile(v);
+
+  Widget _emptyState() {
+    return EmptyView(
+      icon: Icons.movie_outlined,
+      title: 'No Emby account yet',
+      subtitle:
+          'Add your Emby server in Servers to see your movies and shows here.',
+      actionLabel: 'Open Servers',
+      onAction: _openServers,
+    );
+  }
+}

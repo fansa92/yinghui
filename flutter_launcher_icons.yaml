@@ -1,0 +1,18 @@
+# P5: launcher icons, generated from the code-drawn logo
+# (~/workspace/media-manager/logo/yinghui-logo-1024.png).
+# Android adaptive icons use the separate foreground/background
+# (foreground = cloud + play on transparency, background = mint).
+# Regenerate with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  macos:
+    generate: true
+  windows:
+    generate: true
+    icon_size: 48
+  image_path: "assets/logo.png"
+  adaptive_icon_background: "assets/logo-background.png"
+  adaptive_icon_foreground: "assets/logo-foreground.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21

@@ -1,0 +1,42 @@
+name: yinghui
+description: "影汇 YingHui — a media manager and player for Navidrome, Emby, qBittorrent, Transmission and aria2."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  crypto: ^3.0.7
+  dio: ^5.9.0
+  flutter_secure_storage: ^10.0.0
+  shared_preferences: ^2.5.4
+  drift: ^2.35.4
+  drift_flutter: ^0.3.1
+  sqlite3_flutter_libs: ^0.6.0+eol
+  # P2: audio playback (libmpv/FFmpeg) + cached cover art.
+  media_kit: ^1.2.0
+  # P3: video picture for the media_kit Player.
+  media_kit_video: ^1.2.0
+  cached_network_image: ^3.4.0
+  flutter_cache_manager: ^3.4.0
+  # P5: Settings (theme mode, seed colour, dynamic colour, cache size).
+  dynamic_color: ^1.7.0
+  path_provider: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.35.3
+  build_runner: ^2.17.1
+  # P5: launcher icons from assets/logo.png (see flutter_launcher_icons.yaml).
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
