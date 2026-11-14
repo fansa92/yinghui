@@ -71,9 +71,17 @@ class Aria2Client {
       final data = response.data ?? {};
       if (data.containsKey('error')) {
         final error = data['error'] as Map<String, dynamic>?;
+        final message = '${error?['message'] ?? 'unknown'}';
+        // A JSON-RPC auth failure still arrives as HTTP 200, so the
+        // HTTP status is useless here: map aria2's
+        // `{"code":1,"message":"Unauthorized"}` to a synthetic 401,
+        // so live use reports "RPC 密钥错误" instead of the nonsense
+        // "服务器返回 HTTP 200" the Downloads page used to show for
+        // exactly the same condition the Servers probe names
+        // correctly.
         throw ApiException(
-          'aria2 $method failed: ${error?['message'] ?? 'unknown'}',
-          statusCode: response.statusCode,
+          'aria2 $method failed: $message',
+          statusCode: message == 'Unauthorized' ? 401 : response.statusCode,
         );
       }
       return data['result'];

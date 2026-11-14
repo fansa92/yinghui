@@ -233,7 +233,11 @@ class _HomePageState extends State<HomePage> {
                         style: TextStyle(color: YingHuiTheme.textMuted),
                       ),
                     ),
-                  if (downloading.isNotEmpty) ...[
+                  // Only with real downloader credentials: without
+                  // them the shared repo holds no tasks at all, so
+                  // there is nothing to show here.
+                  if (widget.downloadRepo.hasCredentials &&
+                      downloading.isNotEmpty) ...[
                     _sectionTitle('下载'),
                     Card(
                       child: ListTile(

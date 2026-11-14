@@ -34,6 +34,7 @@ class ServerStore extends ChangeNotifier {
     AppDatabase? database,
     Future<ConnectionResult> Function(Server)? connectionTester,
     EmbyClient Function(Server server)? embyClientFactory,
+    this._downloaderTester,
   }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
        _db = database ?? AppDatabase(),
        _connectionTester = connectionTester ?? ApiClientFactory.testConnection,
@@ -49,6 +50,38 @@ class ServerStore extends ChangeNotifier {
   /// for tests (a fake can return canned results without a network);
   /// production uses [ApiClientFactory.testConnection].
   final Future<ConnectionResult> Function(Server) _connectionTester;
+
+  /// For downloader servers (qBittorrent / Transmission / aria2):
+  /// when set, their connectivity check runs through this instead of
+  /// [_connectionTester]. Production wires it to the download
+  /// repository's cached-client probe, so a Servers-page test warms
+  /// the same session the Downloads page polls with — the probe and
+  /// the live path can no longer disagree ("在线" here, "登录已过期"
+  /// there). Null in tests and for non-downloader servers.
+  Future<ConnectionResult> Function(Server)? _downloaderTester;
+
+  /// Replaces the downloader connectivity check (see
+  /// [_downloaderTester]). Set once at startup, after the download
+  /// repository exists.
+  set downloaderTester(Future<ConnectionResult> Function(Server)? tester) =>
+      _downloaderTester = tester;
+
+  /// True once [load] has run (successfully or not). main() awaits
+  /// the load before the first paint, so the app never flashes a
+  /// wrong "no servers" state while the stored list is still
+  /// loading; a store created without that await (e.g. in tests)
+  /// loads in initState instead.
+  bool _isLoaded = false;
+  bool get isLoaded => _isLoaded;
+
+  /// Server ids whose secret failed to read from secure storage
+  /// during the last [load]. Those servers load with an empty token
+  /// (the user re-enters it) — but the failure used to be invisible
+  /// (debugPrint only), so every login 401'd as "账号不对" with no
+  /// hint the real cause was an unreadable keychain. The Servers
+  /// page shows a warning on these rows.
+  final Set<String> _tokenReadFailedIds = {};
+  Set<String> get tokenReadFailedIds => Set.unmodifiable(_tokenReadFailedIds);
 
   /// Builds the Emby client used for username+password login.
   /// Injected for tests; production uses the real [EmbyClient].
@@ -94,6 +127,7 @@ class ServerStore extends ChangeNotifier {
   ];
 
   Future<void> load() async {
+    _tokenReadFailedIds.clear();
     try {
       final rows = await _db.select(_db.servers).get();
       _servers.clear();
@@ -101,12 +135,16 @@ class ServerStore extends ChangeNotifier {
         // A token read must never drop the whole list: if secure
         // storage fails for one server, that server loads with an
         // empty token (the user re-enters it) and the rest still load.
+        // The failure is recorded (see [tokenReadFailedIds]) so the
+        // Servers page can say the keychain read failed instead of
+        // letting every login 401 as a wrong password.
         String token = '';
         try {
           token =
               await _secureStorage.read(key: 'yinghui_token_${row.id}') ?? '';
         } catch (e) {
           debugPrint('ServerStore token read failed for ${row.id}: $e');
+          _tokenReadFailedIds.add(row.id);
         }
         _servers.add(_serverFromRow(row, token));
       }
@@ -119,6 +157,7 @@ class ServerStore extends ChangeNotifier {
       debugPrint('ServerStore.load failed: $e');
       _servers.clear();
     }
+    _isLoaded = true;
     notifyListeners();
   }
 
@@ -189,6 +228,9 @@ class ServerStore extends ChangeNotifier {
           key: 'yinghui_token_${s.id}',
           value: s.token,
         );
+        // A successful write proves the keychain works again — the
+        // server no longer needs the read-failure warning.
+        _tokenReadFailedIds.remove(s.id);
       } catch (e) {
         // Secure storage unavailable (e.g. tests without plugins):
         // the server list in Drift is still saved.
@@ -241,6 +283,13 @@ class ServerStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Downloader types share the download repository's cached
+  /// client for connectivity checks (see [downloaderTester]).
+  static bool _isDownloader(ServerType type) =>
+      type == ServerType.qbittorrent ||
+      type == ServerType.transmission ||
+      type == ServerType.aria2;
+
   /// Runs the native client's structured connectivity check, then
   /// records any version/name the probe returned onto the server's
   /// row (see [_recordProbeResult]). The form's Test Connection button
@@ -253,7 +302,13 @@ class ServerStore extends ChangeNotifier {
   /// with the access token, so a password-based server heals itself
   /// instead of showing "needs login" forever.
   Future<ConnectionResult> testConnection(Server server) async {
-    var result = await _connectionTester(server);
+    // Downloader servers are tested through the download
+    // repository's cached client when one is wired in (see
+    // [downloaderTester]): the probe then warms the same session
+    // the Downloads page polls with, instead of a throwaway login
+    // that proves nothing about the live session.
+    final tester = _isDownloader(server.type) ? _downloaderTester : null;
+    var result = await (tester ?? _connectionTester)(server);
     if (!result.isOk &&
         server.type == ServerType.emby &&
         server.username.isNotEmpty &&

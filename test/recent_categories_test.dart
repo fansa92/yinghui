@@ -394,6 +394,11 @@ class _NoMusicRepo implements MusicRepository {
 
 class _EmptyDownloadRepo extends ChangeNotifier implements DownloadRepository {
   @override
+  bool isAuthBackedOff(String serverId) => false;
+
+  @override
+  Future<void> retryLogin(String serverId) async {}
+  @override
   String? serverFilter;
 
   @override

@@ -121,7 +121,12 @@ void main() {
 
       final tasks = await client.torrentsInfo();
       expect(tasks, isEmpty);
-      expect(loginCalls, 2, reason: 'one login + one re-login after 403');
+      expect(
+        loginCalls,
+        1,
+        reason:
+            'lazy auth: no login before the first 403, one login to recover',
+      );
       expect(infoCalls, 2, reason: 'original call + one retry');
     });
 
@@ -153,7 +158,7 @@ void main() {
           isA<ApiException>().having((e) => e.statusCode, 'statusCode', 403),
         ),
       );
-      expect(loginCalls, 2, reason: 'exactly one re-login, no loop');
+      expect(loginCalls, 1, reason: 'lazy auth: one login to recover, no loop');
       expect(infoCalls, 2, reason: 'original call + one retry');
     });
   });
@@ -166,7 +171,7 @@ void main() {
           server,
           ApiException('qBittorrent torrents/info failed: …', statusCode: 403),
         ),
-        'Test qBittorrent：登录已过期或账号不对，请在服务器页重新测试连接',
+        'Test qBittorrent：登录已过期，重新登录失败，请重新测试连接',
       );
       expect(
         RealDownloadRepository.friendlyError(

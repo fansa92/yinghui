@@ -249,6 +249,14 @@ class _ServersPageState extends State<ServersPage> {
                     : '\n${_statusLabel(result)}: ${result.message}'
                           '${result.serverVersion?.isNotEmpty == true ? ' · v${result.serverVersion}' : ''}'
                           '${result.serverName?.isNotEmpty == true ? ' · ${result.serverName}' : ''}';
+                // A secret that failed to read from secure storage
+                // loads as an empty token: flag it here, so a
+                // failing login reads as a keychain problem instead
+                // of a wrong password.
+                final tokenWarning =
+                    store.tokenReadFailedIds.contains(server.id)
+                    ? '\n密钥读取失败，请重新输入密码'
+                    : '';
                 return Dismissible(
                   key: ValueKey(server.id),
                   direction: DismissDirection.endToStart,
@@ -293,7 +301,7 @@ class _ServersPageState extends State<ServersPage> {
                           ),
                           title: Text(server.name),
                           subtitle: Text(
-                            '${server.type.label} · ${server.baseUrl}$detail',
+                            '${server.type.label} · ${server.baseUrl}$detail$tokenWarning',
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,

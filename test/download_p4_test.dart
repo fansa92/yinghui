@@ -12,7 +12,6 @@ import 'package:yinghui/data/api/transmission_client.dart';
 import 'package:yinghui/data/db/app_database.dart';
 import 'package:yinghui/data/models/download_task.dart';
 import 'package:yinghui/data/repositories/download_repository.dart';
-import 'package:yinghui/data/repositories/fake_repos.dart';
 import 'package:yinghui/data/repositories/server_store.dart';
 import 'package:yinghui/features/downloads/downloads_page.dart';
 
@@ -180,9 +179,10 @@ void main() {
       expect(tasks[1].status, DownloadStatus.paused);
       expect(tasks[2].status, DownloadStatus.completed);
       expect(tasks[3].status, DownloadStatus.failed);
-      // Login happened first, then info — and the subpath is preserved.
-      expect(seen.first, contains('auth/login'));
-      expect(seen, contains('api/v2/torrents/info'));
+      // Lazy auth: the info call goes first and the server answers
+      // directly, so no login happens — and the subpath is preserved.
+      expect(seen.first, contains('api/v2/torrents/info'));
+      expect(seen, everyElement(isNot(contains('auth/login'))));
     });
 
     test('addMagnet posts multipart FormData with urls + savepath', () async {
@@ -538,12 +538,15 @@ void main() {
     );
 
     test(
-      'no credentials -> hasCredentials false, refresh falls back to fake',
+      'no credentials -> hasCredentials false, refresh yields no tasks',
       () async {
         final repo = makeRepo();
         expect(repo.hasCredentials, isFalse);
         await repo.refresh();
-        expect(repo.tasks, FakeDownloadRepo.tasks());
+        // Demo tasks must never leak: with no credentials there is
+        // nothing real to show, so the queue stays empty instead of
+        // showing the old fake "Ubuntu 24.04 LTS.iso".
+        expect(repo.tasks, isEmpty);
       },
     );
 

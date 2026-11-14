@@ -51,6 +51,28 @@ class QbittorrentClient {
 
   String? _sid;
 
+  /// The in-flight login, shared by concurrent callers. Without
+  /// this, a poll tick and a user action (pause/add/delete) could
+  /// both see a 403, both call [login] and race on [_sid] — the
+  /// second login's `_sid = null` (see [login]) could wipe the
+  /// first login's fresh SID mid-flight, producing spurious 403s
+  /// and duplicate logins. Callers await the same future instead.
+  Future<bool>? _loginFuture;
+
+  /// One shared login: concurrent callers await the same in-flight
+  /// [login] instead of each starting their own. The entry is
+  /// cleared when the future completes, success or failure, so a
+  /// later call starts a fresh login.
+  Future<bool> _loginOnce() {
+    final inFlight = _loginFuture;
+    if (inFlight != null) return inFlight;
+    final future = login();
+    _loginFuture = future;
+    return future.whenComplete(() {
+      if (identical(_loginFuture, future)) _loginFuture = null;
+    });
+  }
+
   Future<T> _guard<T>(Future<T> Function() run, String what) async {
     try {
       return await run();
@@ -73,6 +95,11 @@ class QbittorrentClient {
   /// exception before we get here. Throws [ApiException] on bad
   /// credentials.
   Future<bool> login() async {
+    // A stale SID must not survive a new login: if this login
+    // returns no cookie (e.g. a no-auth server answering "Ok."),
+    // the fail-fast check below throws — and the old SID must not
+    // stay behind to be sent as if it were still valid.
+    _sid = null;
     final ok = await _guard(() async {
       final response = await dio.post<String>(
         'api/v2/auth/login',
@@ -103,25 +130,50 @@ class QbittorrentClient {
     return true;
   }
 
-  /// Login, then GET /api/v2/app/version as a connectivity check.
+  /// Version check, lazy like every other call: try without a
+  /// session first (a no-auth server answers 200 with no login at
+  /// all); only on 401/403 log in once (shared via [_loginOnce])
+  /// and retry. A wrong password surfaces as a 401 from the login.
   Future<bool> testConnection() async {
-    await login();
-    return _guard(() async {
-      final response = await dio.get<String>(
-        'api/v2/app/version',
-        options: Options(headers: _cookieHeader),
-      );
-      return response.statusCode == 200;
-    }, 'version check');
+    try {
+      return await _guard(() async {
+        final response = await dio.get<String>(
+          'api/v2/app/version',
+          options: Options(headers: _cookieHeader),
+        );
+        return response.statusCode == 200;
+      }, 'version check');
+    } on ApiException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        await _loginOnce();
+        return _guard(() async {
+          final response = await dio.get<String>(
+            'api/v2/app/version',
+            options: Options(headers: _cookieHeader),
+          );
+          return response.statusCode == 200;
+        }, 'version check');
+      }
+      rethrow;
+    }
   }
 
   /// Structured connectivity check. GET app/version WITHOUT login
   /// first: HTTP 403 means the Web API is present behind the subpath
   /// and needs login (needsAuth, not unreachable). With credentials,
-  /// login then re-check; HTTP 200 after login is ok.
+  /// log in once (shared via [_loginOnce]) then re-check; HTTP 200
+  /// after login is ok. A 401 from the login and a bare 403 are
+  /// told apart: a wrong password says so, "never logged in" says
+  /// so — they used to collapse into one message.
   Future<ConnectionResult> testConnectionResult() async {
     try {
-      final probe = await dio.get<String>('api/v2/app/version');
+      // Send the known SID when one exists: a warmed session must
+      // not be re-proven with a bare probe that 403s and forces a
+      // second login on every repeat check.
+      final probe = await dio.get<String>(
+        'api/v2/app/version',
+        options: Options(headers: _cookieHeader),
+      );
       if (probe.statusCode == 200) {
         return ConnectionResult.ok(message: '已连接', serverVersion: probe.data);
       }
@@ -129,11 +181,11 @@ class QbittorrentClient {
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 403) {
-        if (server.username.isEmpty || server.token.isEmpty) {
-          return ConnectionResult.needsAuth(message: '服务器可达，需要登录（HTTP 403）');
+        if (server.username.isEmpty && server.token.isEmpty) {
+          return ConnectionResult.needsAuth(message: '服务器可达，需要登录');
         }
         try {
-          await login();
+          await _loginOnce();
           final version = await dio.get<String>(
             'api/v2/app/version',
             options: Options(headers: _cookieHeader),
@@ -144,15 +196,22 @@ class QbittorrentClient {
               serverVersion: version.data,
             );
           }
-        } on ApiException {
-          // Login failed: the 403 probe already proved reachability.
+        } on ApiException catch (loginError) {
+          // A 401 here is a wrong username/password, not an
+          // expired session — say so instead of the generic
+          // "needs login" the probe used to return for both.
+          if (loginError.statusCode == 401) {
+            return ConnectionResult.needsAuth(message: '用户名或密码错误，请检查账号');
+          }
+          // Any other login failure: the 403 probe already proved
+          // reachability, so this is still "needs login".
         } on DioException {
           // The version check itself failed after login (transport
           // error): the 403 probe already proved reachability, so this
           // is still "needs login", not "unreachable" — and it must not
           // escape as a raw DioException to the caller.
         }
-        return ConnectionResult.needsAuth(message: '服务器可达，需要登录（HTTP 403）');
+        return ConnectionResult.needsAuth(message: '服务器可达，需要登录');
       }
       if (status != null) {
         return ConnectionResult.unreachable(message: 'HTTP $status');
@@ -163,27 +222,27 @@ class QbittorrentClient {
     }
   }
 
-  Future<void> _ensureLogin() async {
-    if (_sid == null) await login();
-  }
-
-  /// Runs [run] once; if the server answers 403 the SID has expired
-  /// (or was revoked), so log in once more and retry the call a single
-  /// time. Without this, every call after a SID expiry fails until the
-  /// client is recreated.
+  /// Lazy auth: runs [run] first with whatever session exists
+  /// (possibly none), and only logs in when the server answers
+  /// 401/403 — then retries the call a single time. This is what
+  /// makes a no-auth server work end to end (its calls answer 200
+  /// with no login at all) and saves one login round-trip on every
+  /// cold start. The old login-first design forced even a no-auth
+  /// server through [login], whose fail-fast "no SID" check then
+  /// broke Downloads while the Servers probe said "在线".
+  ///
+  /// The login is shared ([_loginOnce]) so concurrent callers that
+  /// all hit 403 await one login instead of racing on [_sid]. The
+  /// retry is not wrapped, so its failure propagates — no loop.
   Future<T> _withRelogin<T>(Future<T> Function() run) async {
     try {
       return await run();
     } on ApiException catch (e) {
-      if (e.statusCode == 403) {
-        // The SID expired (or was never captured): log in once more
-        // and retry a single time. The retry is not wrapped, so its
-        // failure propagates — no loop. The old code also required
-        // _sid != null here, which meant a login that succeeded
-        // without capturing a SID could never recover from the 403
-        // that followed.
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        // No (valid) session: log in once more and retry a single
+        // time. A wrong password surfaces as the login's own 401.
         _sid = null;
-        await login();
+        await _loginOnce();
         return run();
       }
       rethrow;
@@ -193,7 +252,6 @@ class QbittorrentClient {
   /// GET /api/v2/torrents/info — all torrents as unified [DownloadTask]s.
   Future<List<DownloadTask>> torrentsInfo() async {
     return _withRelogin(() async {
-      await _ensureLogin();
       return _guard(() async {
         final response = await dio.get<List<dynamic>>(
           'api/v2/torrents/info',
@@ -213,7 +271,6 @@ class QbittorrentClient {
   /// so this sends a [FormData], not urlencoded fields.
   Future<bool> addMagnet(String magnetUrl, {String? savePath}) async {
     return _withRelogin(() async {
-      await _ensureLogin();
       final formMap = <String, dynamic>{'urls': magnetUrl};
       final path = savePath;
       if (path != null) formMap['savepath'] = path;
@@ -231,7 +288,6 @@ class QbittorrentClient {
 
   Future<bool> _torrentAction(String action, List<String> hashes) async {
     return _withRelogin(() async {
-      await _ensureLogin();
       return _guard(() async {
         final response = await dio.post<String>(
           'api/v2/torrents/$action',
@@ -255,7 +311,6 @@ class QbittorrentClient {
   /// POST /api/v2/torrents/delete?deleteFiles=false.
   Future<bool> delete(List<String> hashes, {bool deleteFiles = false}) async {
     return _withRelogin(() async {
-      await _ensureLogin();
       return _guard(() async {
         final response = await dio.post<String>(
           'api/v2/torrents/delete',

@@ -310,15 +310,46 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             ),
             if (widget.repo.errors.isNotEmpty)
-              ...widget.repo.errors.values.map(
-                (e) => Padding(
+              ...widget.repo.errors.entries.map(
+                (entry) => Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: Text(
-                    e,
-                    style: const TextStyle(
-                      color: YingHuiTheme.errorRed,
-                      fontSize: 13,
-                    ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            entry.value,
+                            style: const TextStyle(
+                              color: YingHuiTheme.errorRed,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // A backed-off server stopped polling after
+                      // repeated auth failures: the only way back is
+                      // the manual re-login (or fixing the
+                      // credentials in Servers), so the action sits
+                      // next to the error instead of the error being
+                      // a dead end.
+                      if (widget.repo.isAuthBackedOff(entry.key))
+                        TextButton(
+                          onPressed: () => widget.repo.retryLogin(entry.key),
+                          child: const Text('重新登录'),
+                        ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => ServersPage(store: widget.store),
+                            ),
+                          );
+                        },
+                        child: const Text('去服务器页'),
+                      ),
+                    ],
                   ),
                 ),
               ),

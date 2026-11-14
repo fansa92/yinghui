@@ -456,6 +456,11 @@ class _RecordingVideoRepo implements VideoRepository {
 /// (refresh only shows the selected server's tasks).
 class _RecordingDownloadRepo extends ChangeNotifier
     implements DownloadRepository {
+  @override
+  bool isAuthBackedOff(String serverId) => false;
+
+  @override
+  Future<void> retryLogin(String serverId) async {}
   _RecordingDownloadRepo({
     required this.downloaders,
     required List<DownloadTask> tasks,

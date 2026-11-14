@@ -1258,7 +1258,7 @@ void main() {
       );
       final result = await client.testConnectionResult();
       expect(result.needsAuth, isTrue);
-      expect(result.message, '服务器可达，需要登录（HTTP 403）');
+      expect(result.message, '服务器可达，需要登录');
     });
   });
 }

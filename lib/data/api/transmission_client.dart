@@ -100,7 +100,14 @@ class TransmissionClient {
   Future<Map<String, dynamic>> _postOnce(Map<String, dynamic> body) async {
     final headers = <String, String>{};
     if (sessionId != null) headers[sessionHeader] = sessionId!;
-    if (server.username.isNotEmpty) {
+    // Basic auth is sent when EITHER credential is set: sending
+    // nothing when only a password is configured used to drop the
+    // password silently, so a password-only setup 401'd with no
+    // indication that its credential never left the app. An
+    // empty username with a password is valid Basic syntax
+    // (`:password`); a daemon with a username set still rejects
+    // it as wrong credentials, which is the correct outcome.
+    if (server.username.isNotEmpty || server.token.isNotEmpty) {
       headers['Authorization'] =
           'Basic ${_basicAuth(server.username, server.token)}';
     }
@@ -112,9 +119,20 @@ class TransmissionClient {
     final data = response.data ?? {};
     final error = data['error'] as Map<String, dynamic>?;
     if (error != null) {
+      final message = '${error['message'] ?? 'unknown'}';
+      final errorString = '${(error['data'] as Map?)?['errorString'] ?? ''}';
+      // JSON-RPC auth failures ride on HTTP 200, so the HTTP status
+      // is useless here: map an "unauthorized" error to a synthetic
+      // 401, so live use reports "用户名或密码错误" instead of the
+      // nonsense "服务器返回 HTTP 200" the Downloads page used to
+      // show for exactly the same condition the Servers probe names
+      // correctly.
+      final isAuth =
+          message.toLowerCase().contains('unauthorized') ||
+          errorString.toLowerCase().contains('unauthorized');
       throw ApiException(
-        'Transmission error: ${error['message'] ?? 'unknown'}',
-        statusCode: response.statusCode,
+        isAuth ? '用户名或密码错误' : 'Transmission error: $message',
+        statusCode: isAuth ? 401 : response.statusCode,
       );
     }
     return (data['result'] as Map<String, dynamic>?) ?? {};
@@ -151,7 +169,9 @@ class TransmissionClient {
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         return ConnectionResult.needsAuth(
-          message: server.username.isEmpty ? '需要登录' : '用户名或密码错误',
+          message: server.username.isEmpty && server.token.isEmpty
+              ? '需要登录'
+              : '用户名或密码错误',
         );
       }
       return ConnectionResult.unreachable(message: e.message);

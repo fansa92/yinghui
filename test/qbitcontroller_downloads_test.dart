@@ -387,6 +387,12 @@ class _FakeDownloadRepo extends ChangeNotifier implements DownloadRepository {
   }
 
   @override
+  bool isAuthBackedOff(String serverId) => false;
+
+  @override
+  Future<void> retryLogin(String serverId) async {}
+
+  @override
   void startPolling({int intervalSeconds = 5}) {}
 
   @override

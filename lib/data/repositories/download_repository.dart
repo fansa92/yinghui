@@ -4,13 +4,13 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/errors.dart';
+import '../../core/models/connection_result.dart';
 import '../../core/models/server.dart';
 import '../api/aria2_client.dart';
 import '../api/qbittorrent_client.dart';
 import '../api/transmission_client.dart';
 import '../db/app_database.dart';
 import '../models/download_task.dart';
-import 'fake_repos.dart';
 import 'server_store.dart';
 
 /// What the Downloads tab needs, regardless of where the data comes from.
@@ -56,6 +56,16 @@ abstract class DownloadRepository {
   Future<bool> deleteTask(DownloadTask task, {bool deleteFiles = false});
   Future<bool> retryTask(DownloadTask task);
 
+  /// Whether [serverId] is currently backed off after repeated
+  /// auth failures (see [RealDownloadRepository]). Backed-off
+  /// servers are skipped by polling until [retryLogin] or a
+  /// credential change clears the backoff.
+  bool isAuthBackedOff(String serverId) => false;
+
+  /// Clears the auth backoff for [serverId] and retries it at once.
+  /// Used by the Downloads page's manual 重新登录 action.
+  Future<void> retryLogin(String serverId) async {}
+
   /// Polling while the Downloads page is visible. Call
   /// [stopPolling] on dispose; only one timer ever runs. The
   /// interval comes from Settings (default 5s); calling
@@ -70,9 +80,9 @@ abstract class DownloadRepository {
 /// into one unified queue (source label + serverId kept per task);
 /// a server that is offline throws per-server [ApiException], which is
 /// caught here so one dead server never blanks the whole list — its
-/// error is exposed in [errors] instead. With no usable downloader the
-/// P0 fake repo is the fallback (the Downloads page still shows an
-/// explicit empty state instead of silently presenting demo data).
+/// error is exposed in [errors] instead. With no usable downloader
+/// the queue is empty; the Downloads page shows an explicit empty
+/// state, and no demo data is ever presented as real.
 ///
 /// "Usable" means a downloader server with a username or a token, or a
 /// user-added server (id not starting with `seed-`) — the latter covers
@@ -108,16 +118,27 @@ class RealDownloadRepository extends ChangeNotifier
   /// fresh client per call would throw away the qB SID (re-login on
   /// every refresh) and the Transmission session id (a 409 round-trip
   /// on every call). Keyed by server id; rebuilt when the server's
-  /// type, host or credentials change.
+  /// type, host, port or credentials change.
   final Map<String, (String fingerprint, Object client)> _clientCache = {};
 
+  /// What identifies a cached client: type, host, port and
+  /// credentials. Port is part of it — a port-only edit used to
+  /// leave the fingerprint unchanged, so the app kept dialling the
+  /// old port until restart.
+  static String _fingerprint(Server server) =>
+      '${server.type.name}|${server.host}|${server.port}|'
+      '${server.username}|${server.token}';
+
   T _cachedClient<T>(Server server, T Function(Server) factory) {
-    final fingerprint =
-        '${server.type.name}|${server.host}|${server.username}|${server.token}';
+    final fingerprint = _fingerprint(server);
     final cached = _clientCache[server.id];
     if (cached != null && cached.$1 == fingerprint && cached.$2 is T) {
       return cached.$2 as T;
     }
+    // A rebuild means the user changed something about the server
+    // (host, port or credentials): any auth backoff for it no longer
+    // applies — the next poll retries with the new settings.
+    if (cached != null) _clearAuthBackoff(server.id);
     final client = factory(server);
     _clientCache[server.id] = (fingerprint, client as Object);
     return client;
@@ -132,6 +153,72 @@ class RealDownloadRepository extends ChangeNotifier
   final Map<String, String> _errors = {};
   bool _isLoading = false;
   Timer? _timer;
+
+  /// Auth-failure backoff, per server id: consecutive 401/403
+  /// failures from the last refreshes. qB bans an IP after N failed
+  /// logins, so a wrong password polled every 5 s would escalate a
+  /// 401 into an IP ban — after [maxConsecutiveAuthFailures]
+  /// consecutive auth failures a server is skipped by polling until
+  /// the user taps 重新登录 or edits its credentials. Non-auth
+  /// outcomes (a success, or any non-auth error) reset the streak.
+  static const int maxConsecutiveAuthFailures = 3;
+  final Map<String, int> _authFailures = {};
+
+  /// The last auth error per backed-off server, kept visible while
+  /// the server is skipped (the per-refresh error map is cleared on
+  /// every refresh, so without this the line would vanish while the
+  /// server is still backed off).
+  final Map<String, String> _backedOffErrors = {};
+
+  @override
+  bool isAuthBackedOff(String serverId) =>
+      (_authFailures[serverId] ?? 0) >= maxConsecutiveAuthFailures;
+
+  void _recordAuthFailure(Server server, String message) {
+    final count = (_authFailures[server.id] ?? 0) + 1;
+    _authFailures[server.id] = count;
+    if (count >= maxConsecutiveAuthFailures) {
+      _backedOffErrors[server.id] = message;
+    }
+  }
+
+  void _clearAuthBackoff(String serverId) {
+    _authFailures.remove(serverId);
+    _backedOffErrors.remove(serverId);
+  }
+
+  @override
+  Future<void> retryLogin(String serverId) async {
+    // The manual 重新登录 action: clear the backoff and retry at
+    // once. refresh() re-fetches every usable server; the cleared
+    // server is fetched again, the others refresh as normal.
+    _clearAuthBackoff(serverId);
+    await refresh();
+  }
+
+  /// Structured connectivity check through this repo's cached
+  /// client — so a Servers-page test warms the same session the
+  /// Downloads page polls with, instead of a throwaway client
+  /// whose login proves nothing about the live session. The
+  /// Servers page reaches this via [ServerStore.downloaderTester].
+  Future<ConnectionResult> testConnection(Server server) async {
+    _pruneClientCache();
+    return switch (server.type) {
+      ServerType.qbittorrent => _cachedClient(
+        server,
+        _qbFactory,
+      ).testConnectionResult(),
+      ServerType.transmission => _cachedClient(
+        server,
+        _transmissionFactory,
+      ).testConnectionResult(),
+      ServerType.aria2 => _cachedClient(
+        server,
+        _ariaFactory,
+      ).testConnectionResult(),
+      _ => ConnectionResult.unreachable(message: '不是下载器服务器'),
+    };
+  }
 
   /// Per-page server filter (see the [DownloadRepository] doc): the
   /// Downloads page sets it from its selector; null = all servers.
@@ -359,11 +446,25 @@ class RealDownloadRepository extends ChangeNotifier
   /// ("This exception was thrown because the response has a status
   /// code of 403 and RequestOptions.validateStatus was configured
   /// to throw…") that must never reach the user. Only the status
-  /// code is used, so nothing from the raw error leaks through.
+  /// code — and, for JSON-RPC auth errors that arrive as HTTP 200,
+  /// the word "Unauthorized" in the message — is used for routing,
+  /// so nothing from the raw error leaks through.
+  ///
+  /// 401 and 403 are told apart: a wrong password says so, an
+  /// expired session that failed to re-login says so. aria2's
+  /// credential is a secret, not a username/password, so its 401
+  /// names the RPC key instead.
   static String friendlyError(Server server, ApiException e) {
     final status = e.statusCode;
-    if (status == 401 || status == 403) {
-      return '${server.name}：登录已过期或账号不对，请在服务器页重新测试连接';
+    final authByMessage = e.message.contains('Unauthorized');
+    if (status == 401 || authByMessage) {
+      if (server.type == ServerType.aria2) {
+        return '${server.name}：RPC 密钥错误，请检查密钥';
+      }
+      return '${server.name}：用户名或密码错误，请检查账号';
+    }
+    if (status == 403) {
+      return '${server.name}：登录已过期，重新登录失败，请重新测试连接';
     }
     if (status != null) {
       return '${server.name}：服务器返回 HTTP $status';
@@ -373,9 +474,13 @@ class RealDownloadRepository extends ChangeNotifier
 
   Future<void> _refreshOnce() async {
     if (!hasCredentials) {
-      _tasks
-        ..clear()
-        ..addAll(FakeDownloadRepo.tasks());
+      // No usable downloader: the queue is empty, full stop. The
+      // old code filled in fake demo tasks here, which the Downloads
+      // page hid behind its own hasCredentials guard — but Home
+      // reads the same shared repo without that guard, so the fake
+      // "Ubuntu 24.04 LTS.iso" showed up on Home as a real
+      // in-progress download. No fakes anywhere now.
+      _tasks.clear();
       _errors.clear();
       _isLoading = false;
       notifyListeners();
@@ -392,10 +497,40 @@ class RealDownloadRepository extends ChangeNotifier
         ? _usableDownloaders
         : _usableDownloaders.where((s) => s.id == serverFilter).toList();
     for (final server in serversToRefresh) {
+      // A credential/port edit rebuilds the cached client; a
+      // rebuild means the user changed something, so a backoff from
+      // the old settings no longer applies. Checked here (before
+      // the skip below) because a backed-off server never reaches
+      // _fetchFor, where the same reset also runs on rebuild.
+      final cached = _clientCache[server.id];
+      if (cached != null && cached.$1 != _fingerprint(server)) {
+        _clearAuthBackoff(server.id);
+      }
+      if (isAuthBackedOff(server.id)) {
+        // Backed off after repeated auth failures: do not contact
+        // the server at all (every login attempt is another failed
+        // login toward qB's IP ban). The last auth error stays
+        // visible, with the Downloads page's 重新登录 action to
+        // retry manually.
+        final lastError = _backedOffErrors[server.id];
+        if (lastError != null) _errors[server.id] = lastError;
+        continue;
+      }
       try {
         live.addAll(await _fetchFor(server));
+        // Any success breaks the auth-failure streak.
+        _clearAuthBackoff(server.id);
       } on ApiException catch (e) {
-        _errors[server.id] = friendlyError(server, e);
+        final message = friendlyError(server, e);
+        _errors[server.id] = message;
+        if (e.statusCode == 401 ||
+            e.statusCode == 403 ||
+            e.message.contains('Unauthorized')) {
+          _recordAuthFailure(server, message);
+        } else {
+          // A non-auth outcome breaks the streak too.
+          _clearAuthBackoff(server.id);
+        }
       }
     }
     try {

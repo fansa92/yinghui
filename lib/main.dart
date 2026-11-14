@@ -22,7 +22,13 @@ Future<void> main() async {
   // saved tab instead of flashing Home first.
   final appState = AppStateStore();
   await appState.load();
-  runApp(YingHuiApp(appState: appState));
+  // The server list (Drift + secure storage) is loaded before the
+  // first paint too: otherwise the app flashes a wrong "no servers"
+  // state while the stored list is still loading, and the Downloads
+  // page can fire a refresh before credentials exist.
+  final store = ServerStore();
+  await store.load();
+  runApp(YingHuiApp(appState: appState, store: store));
 }
 
 /// 影汇 YingHui — media manager + player for Navidrome, Emby,
@@ -42,12 +48,17 @@ Future<void> main() async {
 /// P5: Settings (theme mode, seed colour, font size, dynamic colour,
 /// playback/download defaults, data, About with APP_VERSION).
 class YingHuiApp extends StatefulWidget {
-  const YingHuiApp({super.key, this.appState});
+  const YingHuiApp({super.key, this.appState, this.store});
 
   /// Pre-loaded global state (main loads it before runApp). When
   /// null — e.g. in the smoke test — a fresh store is created and
   /// loaded in initState instead.
   final AppStateStore? appState;
+
+  /// Pre-loaded server store (main loads it before runApp). When
+  /// null — e.g. in the smoke test — a fresh store is created and
+  /// loaded in initState instead.
+  final ServerStore? store;
 
   @override
   State<YingHuiApp> createState() => _YingHuiAppState();
@@ -72,13 +83,17 @@ class _YingHuiAppState extends State<YingHuiApp> {
   void initState() {
     super.initState();
     _settings = SettingsService();
-    _store = ServerStore();
+    _store = widget.store ?? ServerStore();
     _musicRepo = RealMusicRepository(store: _store, database: _store.database);
     _videoRepo = RealVideoRepository(store: _store, database: _store.database);
     _downloadRepo = RealDownloadRepository(
       store: _store,
       database: _store.database,
     );
+    // Downloader connectivity checks (Servers page) run through the
+    // download repo's cached client, so a successful test warms the
+    // same session the Downloads page polls with.
+    _store.downloaderTester = _downloadRepo.testConnection;
     _history = PlaybackStore(_store.database);
     // The audio bitrate is read from Settings at call time, so a
     // change in Settings applies to the next track without a restart.
@@ -96,10 +111,14 @@ class _YingHuiAppState extends State<YingHuiApp> {
     }
     // Load saved servers (Drift + secure storage) and settings.
     // Failures are non-fatal: the app still starts, with the Music
-    // empty state.
+    // empty state. main() already loaded the store before runApp;
+    // only a store created here (no pre-load, e.g. in tests) still
+    // needs loading.
     _settings.addListener(_onSettingsChanged);
     _settings.load();
-    _store.load();
+    if (!_store.isLoaded) {
+      unawaited(_store.load());
+    }
   }
 
   /// A settings change re-applies the desktop proxy to every Dio

@@ -847,6 +847,12 @@ class _BatchFakeDownloadRepo extends ChangeNotifier
   Future<bool> retryTask(DownloadTask task) async => true;
 
   @override
+  bool isAuthBackedOff(String serverId) => false;
+
+  @override
+  Future<void> retryLogin(String serverId) async {}
+
+  @override
   void startPolling({int intervalSeconds = 5}) {}
 
   @override

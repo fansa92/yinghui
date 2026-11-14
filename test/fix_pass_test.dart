@@ -319,7 +319,9 @@ void main() {
       final tasks = await client.torrentsInfo();
       expect(tasks, hasLength(1));
       expect(tasks.first.name, 'Ubuntu.iso');
-      expect(logins, 2);
+      // Lazy auth: the first info call 403s, one login recovers it,
+      // the retry returns the tasks.
+      expect(logins, 1);
       expect(infoCalls, 2);
     });
   });
@@ -678,7 +680,7 @@ void _fixPassPart2() {
     });
 
     test(
-      'download repo: two refreshes create one qB client (one login)',
+      'download repo: two refreshes create one qB client (no login needed)',
       () async {
         await store.add(
           _server(
@@ -723,7 +725,9 @@ void _fixPassPart2() {
         await repo.refresh();
         await repo.refresh();
         expect(factoryCalls, 1);
-        expect(logins, 1);
+        // Lazy auth: the server answers info directly, so no login
+        // is needed at all — the point is the single cached client.
+        expect(logins, 0);
       },
     );
   });
@@ -1580,6 +1584,11 @@ void _fixPassPart4() {
 /// Fake download repo that records polling calls, for the page test.
 class _FixFakeDownloadRepo extends ChangeNotifier
     implements DownloadRepository {
+  @override
+  bool isAuthBackedOff(String serverId) => false;
+
+  @override
+  Future<void> retryLogin(String serverId) async {}
   final startPollingCalls = <int>[];
 
   @override
