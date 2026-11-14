@@ -237,8 +237,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
                               ),
                             ],
                           ),
-                          onTap: () =>
-                              widget.player.playQueue(tracks, startIndex: i),
+                          onTap: () => widget.player.playTrack(t),
                         );
                       }),
                     ],

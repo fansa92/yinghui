@@ -37,8 +37,15 @@ String _clock(Duration d) {
 ///   scrolls to the Up next list. No Devices row — there is no
 ///   casting support, so none is shown.
 ///
-/// No shuffle/repeat buttons: [PlayerService] has no shuffle or
-/// repeat mode, and a button that does nothing is not acceptable.
+/// Shuffle / repeat live in the transport row in every style:
+/// shuffle (left of previous) and repeat (right of next), with the
+/// active state in the style accent (green for default, white for
+/// the other two); repeat-one shows the repeat_one icon. The Up
+/// next list is reorderable (drag handle), each row has a remove
+/// button, and the header has a 清空 button plus the queue length.
+/// Tapping a queue row jumps within the queue (it does not rebuild
+/// it). Tapping a song anywhere else in the app plays it in place
+/// without destroying the queue (see [PlayerService.playTrack]).
 ///
 /// Desktop (width >= 1024): a two-column layout — left column large
 /// cover + title/artist + seek slider + play controls + volume
@@ -281,6 +288,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     final transport = Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        _shuffleButton(accent),
+        const SizedBox(width: 4),
         IconButton(
           icon: Icon(
             Icons.skip_previous,
@@ -309,6 +318,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
           ),
           onPressed: player.next,
         ),
+        const SizedBox(width: 4),
+        _repeatButton(accent),
       ],
     );
     if (style == MusicPlayerStyle.standard) {
@@ -343,6 +354,45 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
         const SizedBox(height: 8),
         transport,
       ],
+    );
+  }
+
+  /// Inactive colour for the shuffle / repeat buttons: muted in
+  /// the default style, dimmed white in the other two.
+  Color get _inactiveControlColor => _style == MusicPlayerStyle.standard
+      ? YingHuiTheme.textMuted
+      : Colors.white54;
+
+  /// Shuffle toggle. Active state in the style accent.
+  Widget _shuffleButton(Color accent) {
+    final player = widget.player;
+    final active = player.isShuffle;
+    return IconButton(
+      icon: const Icon(Icons.shuffle, size: 28),
+      color: active ? accent : _inactiveControlColor,
+      tooltip: active ? '关闭随机播放' : '随机播放',
+      onPressed: player.toggleShuffle,
+    );
+  }
+
+  /// Repeat cycle (off → all → one). Repeat-one shows the
+  /// repeat_one icon so the mode is visible at a glance.
+  Widget _repeatButton(Color accent) {
+    final player = widget.player;
+    final mode = player.repeatMode;
+    final active = mode != MusicRepeatMode.off;
+    return IconButton(
+      icon: Icon(
+        mode == MusicRepeatMode.one ? Icons.repeat_one : Icons.repeat,
+        size: 28,
+      ),
+      color: active ? accent : _inactiveControlColor,
+      tooltip: switch (mode) {
+        MusicRepeatMode.off => '循环播放：关闭',
+        MusicRepeatMode.all => '循环播放：全部',
+        MusicRepeatMode.one => '循环播放：单曲',
+      },
+      onPressed: player.cycleRepeat,
     );
   }
 
@@ -429,60 +479,101 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
   }
 
   /// Up next header + queue rows, used in both layouts.
+  ///
+  /// The list is reorderable (drag the handle), each row has a
+  /// remove button, and the header shows the queue length plus a
+  /// 清空 button (which keeps the current track playing). Tapping a
+  /// row jumps within the queue; it never rebuilds it.
   Widget _queueSection() {
     final player = widget.player;
     final style = _style;
+    final queue = player.queue;
+    final titleColor = style == MusicPlayerStyle.standard ? null : Colors.white;
+    final mutedColor = style == MusicPlayerStyle.standard
+        ? YingHuiTheme.textMuted
+        : Colors.white70;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          '接下来播放',
-          key: _upNextKey,
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-            color: style == MusicPlayerStyle.standard ? null : Colors.white,
-          ),
+        Row(
+          children: [
+            Text(
+              '接下来播放',
+              key: _upNextKey,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: titleColor,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '共 ${queue.length} 首',
+              style: TextStyle(fontSize: 13, color: mutedColor),
+            ),
+            const Spacer(),
+            if (queue.length > 1)
+              TextButton(onPressed: player.clearQueue, child: const Text('清空')),
+          ],
         ),
-        ...player.queue.asMap().entries.map((entry) {
-          final i = entry.key;
-          final t = entry.value;
-          final isCurrent = i == player.currentIndex;
-          return ListTile(
-            leading: CoverImage(coverUrl: t.coverUrl),
-            title: Text(
-              t.title,
-              style: TextStyle(
-                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                color: isCurrent
-                    ? (style == MusicPlayerStyle.standard
-                          ? YingHuiTheme.primaryGreen
-                          : Colors.white)
-                    : (style == MusicPlayerStyle.standard
-                          ? YingHuiTheme.textPrimary
-                          : Colors.white70),
+        ReorderableListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: queue.length,
+          onReorderItem: (oldIndex, newIndex) {
+            // onReorderItem already adjusts newIndex for the removed
+            // item, so it is the final position as-is.
+            player.moveQueue(oldIndex, newIndex);
+          },
+          itemBuilder: (context, i) {
+            final t = queue[i];
+            final isCurrent = i == player.currentIndex;
+            return ListTile(
+              key: ValueKey(t),
+              leading: CoverImage(coverUrl: t.coverUrl),
+              title: Text(
+                t.title,
+                style: TextStyle(
+                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                  color: isCurrent
+                      ? (style == MusicPlayerStyle.standard
+                            ? YingHuiTheme.primaryGreen
+                            : Colors.white)
+                      : (style == MusicPlayerStyle.standard
+                            ? YingHuiTheme.textPrimary
+                            : Colors.white70),
+                ),
               ),
-            ),
-            subtitle: Text(
-              '${t.artist} · ${t.album}',
-              style: TextStyle(
-                color: style == MusicPlayerStyle.standard
-                    ? null
-                    : Colors.white70,
+              subtitle: Text(
+                '${t.artist} · ${t.album}',
+                style: TextStyle(
+                  color: style == MusicPlayerStyle.standard
+                      ? null
+                      : Colors.white70,
+                ),
               ),
-            ),
-            trailing: Text(
-              t.durationText,
-              style: TextStyle(
-                color: style == MusicPlayerStyle.standard
-                    ? null
-                    : Colors.white70,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(t.durationText, style: TextStyle(color: mutedColor)),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    color: mutedColor,
+                    tooltip: '从队列中移除',
+                    onPressed: () => player.removeAt(i),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  ReorderableDragStartListener(
+                    index: i,
+                    child: Icon(Icons.drag_handle, size: 20, color: mutedColor),
+                  ),
+                ],
               ),
-            ),
-            onTap: () => player.playQueue(player.queue, startIndex: i),
-          );
-        }),
+              onTap: () => player.jumpTo(i),
+            );
+          },
+        ),
       ],
     );
   }

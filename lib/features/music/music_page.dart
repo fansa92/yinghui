@@ -367,10 +367,7 @@ class _MusicPageState extends State<MusicPage> {
                 title: Text(t.title),
                 subtitle: Text('${t.artist} · ${t.album}'),
                 trailing: Text(t.durationText),
-                onTap: () => widget.player.playQueue(
-                  result.songs,
-                  startIndex: result.songs.indexOf(t),
-                ),
+                onTap: () => widget.player.playTrack(t),
               ),
             ),
           ],
@@ -827,10 +824,7 @@ class _MusicPageState extends State<MusicPage> {
       title: Text(t.title),
       subtitle: Text('${t.artist} · ${t.album}'),
       trailing: Text(t.durationText),
-      onTap: () => widget.player.playQueue(
-        _starredSongs,
-        startIndex: _starredSongs.indexOf(t),
-      ),
+      onTap: () => widget.player.playTrack(t),
     );
   }
 }

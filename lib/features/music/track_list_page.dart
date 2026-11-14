@@ -47,7 +47,6 @@ class _TrackListPageState extends State<TrackListPage> {
             ),
           ),
           ...tracks.asMap().entries.map((entry) {
-            final i = entry.key;
             final t = entry.value;
             final starred = _starred[t.id] ?? false;
             return ListTile(
@@ -76,7 +75,7 @@ class _TrackListPageState extends State<TrackListPage> {
                   ),
                 ],
               ),
-              onTap: () => widget.player.playQueue(tracks, startIndex: i),
+              onTap: () => widget.player.playTrack(t),
             );
           }),
         ],

@@ -90,7 +90,7 @@ class _YingHuiAppState extends State<YingHuiApp> {
     _appState = widget.appState ?? AppStateStore();
     _player.addListener(_onPlayerChanged);
     if (_appState.isLoaded) {
-      _restorePlayer();
+      unawaited(_restorePlayer());
     } else {
       unawaited(_appState.load().then((_) => _restorePlayer()));
     }
@@ -111,8 +111,11 @@ class _YingHuiAppState extends State<YingHuiApp> {
   }
 
   /// Restore the last music session into the mini-player: queue +
-  /// position are shown, nothing auto-plays.
-  void _restorePlayer() {
+  /// position are shown, nothing auto-plays. The saved shuffle /
+  /// repeat modes load first, so a restored session plays in the
+  /// saved order.
+  Future<void> _restorePlayer() async {
+    await _player.loadModes();
     final saved = _appState.lastMusic;
     if (saved == null) return;
     _player.restoreQueue(

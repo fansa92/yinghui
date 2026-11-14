@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/track.dart';
 import '../../data/repositories/playback_store.dart';
@@ -89,6 +91,18 @@ class MediaKitPlayerBackend implements PlayerBackend {
   }
 }
 
+/// Repeat behaviour for the music queue.
+enum MusicRepeatMode {
+  /// Stop at the end of the queue.
+  off,
+
+  /// Loop the queue from the start when it ends.
+  all,
+
+  /// Repeat the current track.
+  one,
+}
+
 /// Queue + now-playing state for audio (P2; video reuses it in P3).
 ///
 /// Owns the queue, drives the backend, and notifies listeners so the
@@ -101,8 +115,14 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     PlayerBackend Function()? backendFactory,
     this.history,
     PlaybackCoordinator? coordinator,
+    SharedPreferences? prefs,
+    Random? random,
   }) : _backendFactory = backendFactory ?? MediaKitPlayerBackend.new,
-       _coordinator = coordinator ?? PlaybackCoordinator.instance {
+       _coordinator = coordinator ?? PlaybackCoordinator.instance,
+       _random = random ?? Random() {
+    // Assigned in the body (not an initializing formal) so the
+    // parameter keeps its public name for tests.
+    _prefs = prefs;
     // Register with the coordinator so starting video pauses music
     // (and vice versa). No page has to pass the coordinator around:
     // both services default to the shared instance.
@@ -121,10 +141,37 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
   /// Mutual-exclusion coordinator (shared instance by default).
   final PlaybackCoordinator _coordinator;
 
+  /// Persisted playback modes (shared_preferences; injectable for
+  /// tests so a test can share one prefs instance across two
+  /// services and prove a mode survives a "restart").
+  SharedPreferences? _prefs;
+
+  /// Shuffle randomness (injectable so tests can use a fixed seed).
+  final Random _random;
+
+  /// Playback modes, persisted under `yinghui_shuffle_enabled` /
+  /// `yinghui_repeat_mode`. Defaults: shuffle off, repeat off.
+  static const _kShuffleEnabled = 'yinghui_shuffle_enabled';
+  static const _kRepeatMode = 'yinghui_repeat_mode';
+
   PlayerBackend? _backend;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
+  /// The user's queue, in the order they built it. This is what the
+  /// Up next list shows and what [AppStateStore] persists — shuffle
+  /// never reorders it, so turning shuffle off restores the exact
+  /// same queue.
   List<Track> _queue = [];
+
+  /// Playback order: queue indices in the order tracks actually
+  /// play. Identity when shuffle is off; a shuffled permutation with
+  /// the current track first when shuffle is on. [_index] is always
+  /// `_playOrder[_playPos]` while a track is loaded.
+  List<int> _playOrder = [];
+
+  /// Position of the current track inside [_playOrder].
+  int _playPos = 0;
+
   int _index = -1;
   bool _playing = false;
   Duration _position = Duration.zero;
@@ -159,6 +206,21 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
   Duration get position => _position;
   Duration get duration => _duration;
 
+  /// Shuffle / repeat state. Shuffle only changes the playback
+  /// order ([_playOrder]); the user's queue ([_queue]) is never
+  /// reordered, so turning shuffle off restores the original order.
+  bool _shuffle = false;
+  MusicRepeatMode _repeat = MusicRepeatMode.off;
+
+  bool get isShuffle => _shuffle;
+  MusicRepeatMode get repeatMode => _repeat;
+
+  /// The current playback order, as queue indices. Exposed for
+  /// tests so they can assert shuffle permutations without relying
+  /// on which track happens to play next.
+  @visibleForTesting
+  List<int> get playOrder => List.unmodifiable(_playOrder);
+
   /// The last backend init/open failure, if any. Audio failures used
   /// to be fully silent (no try/catch in [_openCurrent], fire-and-
   /// forget call sites), so a missing native libmpv looked like
@@ -191,6 +253,123 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     }
     notifyListeners();
   }
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
+  /// Load the persisted shuffle / repeat modes. Call once at
+  /// startup, before restoring the queue, so a restored session
+  /// plays in the saved order. Unknown stored values fall back to
+  /// the defaults (shuffle off, repeat off).
+  Future<void> loadModes() async {
+    final p = await _ensurePrefs();
+    _shuffle = p.getBool(_kShuffleEnabled) ?? false;
+    _repeat = MusicRepeatMode.values.firstWhere(
+      (m) => m.name == p.getString(_kRepeatMode),
+      orElse: () => MusicRepeatMode.off,
+    );
+    notifyListeners();
+  }
+
+  Future<void> _saveModes() async {
+    final p = await _ensurePrefs();
+    await p.setBool(_kShuffleEnabled, _shuffle);
+    await p.setString(_kRepeatMode, _repeat.name);
+  }
+
+  /// Enable or disable shuffle. Turning it on keeps the current
+  /// track playing and shuffles the rest behind it; turning it off
+  /// restores the user's original queue order. The queue itself is
+  /// never reordered — only [_playOrder] changes.
+  Future<void> setShuffle(bool value) async {
+    if (value == _shuffle) return;
+    _shuffle = value;
+    _rebuildPlayOrder();
+    await _saveModes();
+    notifyListeners();
+  }
+
+  Future<void> toggleShuffle() => setShuffle(!_shuffle);
+
+  /// Set the repeat mode (off → all → one → off via [cycleRepeat]).
+  Future<void> setRepeat(MusicRepeatMode mode) async {
+    if (mode == _repeat) return;
+    _repeat = mode;
+    await _saveModes();
+    notifyListeners();
+  }
+
+  Future<void> cycleRepeat() async {
+    final next = switch (_repeat) {
+      MusicRepeatMode.off => MusicRepeatMode.all,
+      MusicRepeatMode.all => MusicRepeatMode.one,
+      MusicRepeatMode.one => MusicRepeatMode.off,
+    };
+    await setRepeat(next);
+  }
+
+  /// Rebuild [_playOrder] from the current queue and shuffle flag.
+  /// With shuffle on, the current track (or [firstQueueIndex]) stays
+  /// first and the rest are shuffled; with shuffle off the order is
+  /// the queue order. [_playPos] is re-pointed at the current track.
+  void _rebuildPlayOrder({int? firstQueueIndex}) {
+    if (_queue.isEmpty) {
+      _playOrder = [];
+      _playPos = 0;
+      return;
+    }
+    final first = firstQueueIndex ?? (_index >= 0 ? _index : 0);
+    if (!_shuffle) {
+      _playOrder = List.generate(_queue.length, (i) => i);
+    } else {
+      final rest = List<int>.generate(_queue.length, (i) => i)..remove(first);
+      rest.shuffle(_random);
+      _playOrder = [first, ...rest];
+    }
+    _playPos = _playOrder.indexOf(_index);
+    if (_playPos < 0) _playPos = 0;
+  }
+
+  /// Open and play the track at [playPos] in the playback order
+  /// (shared by next/previous/jumpTo/playTrack so they cannot drift
+  /// apart). Saves the old track's position first.
+  Future<void> _playAtPlayPos(int playPos) async {
+    _playPos = playPos;
+    _index = _playOrder[playPos];
+    try {
+      if (await _openCurrent()) {
+        await _coordinator.musicStarted();
+        await _ensureBackend().play();
+      }
+    } catch (e) {
+      _recordError(e);
+    }
+  }
+
+  /// Insert [track] at [queueIndex] in the user's queue, shifting
+  /// the play-order entries that pointed at or past it. When
+  /// [afterCurrent] is true the new track is also placed right after
+  /// the current position in the play order (play-next); otherwise
+  /// it goes at the end of the play order (add-to-queue).
+  void _insertTrackAt(
+    int queueIndex,
+    Track track, {
+    required bool afterCurrent,
+  }) {
+    _queue.insert(queueIndex, track);
+    for (var i = 0; i < _playOrder.length; i++) {
+      if (_playOrder[i] >= queueIndex) _playOrder[i]++;
+    }
+    _playOrder.insert(
+      afterCurrent ? _playPos + 1 : _playOrder.length,
+      queueIndex,
+    );
+  }
+
+  static bool _sameTrack(Track a, Track b) =>
+      a.id == b.id && a.serverId == b.serverId;
+
+  int _indexOf(Track track) => _queue.indexWhere((t) => _sameTrack(t, track));
 
   PlayerBackend _ensureBackend() {
     final backend = _backend ??= _backendFactory();
@@ -267,6 +446,7 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     if (tracks.isEmpty) return;
     _queue = List.of(tracks);
     _index = index.clamp(0, tracks.length - 1);
+    _rebuildPlayOrder(firstQueueIndex: _index);
     _playing = false;
     _hasOpened = false;
     _duration = currentTrack!.durationSeconds > 0
@@ -279,12 +459,15 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
 
   /// Replace the queue and start at [startIndex]. An empty queue
   /// clears the current track and stops playback instead of leaving
-  /// the old track in the mini-player.
+  /// the old track in the mini-player. With shuffle on, the start
+  /// track plays first and the rest follow in shuffled order.
   Future<void> playQueue(List<Track> tracks, {int startIndex = 0}) async {
     if (tracks.isEmpty) {
       await _savePosition();
       await _backend?.stop();
       _queue = [];
+      _playOrder = [];
+      _playPos = 0;
       _index = -1;
       _playing = false;
       _hasOpened = false;
@@ -295,6 +478,7 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     }
     _queue = List.of(tracks);
     _index = startIndex.clamp(0, tracks.length - 1);
+    _rebuildPlayOrder(firstQueueIndex: _index);
     if (await _openCurrent()) {
       await _coordinator.musicStarted();
       try {
@@ -305,7 +489,142 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
     }
   }
 
-  Future<void> playTrack(Track track) => playQueue([track]);
+  /// Play [track] now without throwing away the queue — the
+  /// behaviour for tapping a single song anywhere (album track,
+  /// search result, starred song):
+  ///
+  /// - already the current track: just make sure it is playing;
+  /// - already in the queue: jump to it (see [jumpTo]);
+  /// - otherwise: insert it right after the current track and
+  ///   play it. The rest of the queue is untouched.
+  ///
+  /// Starting a whole new list (an album's 全部播放, a playlist's
+  /// 全部播放) still uses [playQueue], which replaces the queue.
+  Future<void> playTrack(Track track) async {
+    final current = currentTrack;
+    if (current != null && _sameTrack(current, track)) {
+      if (!_playing) await togglePlay();
+      return;
+    }
+    final existing = _indexOf(track);
+    if (existing >= 0) {
+      await jumpTo(existing);
+      return;
+    }
+    if (!hasTrack) {
+      await playQueue([track]);
+      return;
+    }
+    _insertTrackAt(_index + 1, track, afterCurrent: true);
+    await _savePosition();
+    await _playAtPlayPos(_playPos + 1);
+  }
+
+  /// Jump to the track at [queueIndex] without rebuilding the
+  /// queue or the shuffle order (used by the Up next list).
+  Future<void> jumpTo(int queueIndex) async {
+    if (queueIndex < 0 || queueIndex >= _queue.length) return;
+    final playPos = _playOrder.indexOf(queueIndex);
+    if (playPos < 0) return;
+    await _savePosition();
+    await _playAtPlayPos(playPos);
+  }
+
+  /// Insert [track] right after the current track: it plays next,
+  /// ahead of the rest of the queue. With no current track it just
+  /// starts playing.
+  Future<void> playNext(Track track) async {
+    if (!hasTrack) {
+      await playQueue([track]);
+      return;
+    }
+    _insertTrackAt(_index + 1, track, afterCurrent: true);
+    notifyListeners();
+  }
+
+  /// Append [track] to the end of the queue. With no current track
+  /// it just starts playing.
+  Future<void> addToQueue(Track track) async {
+    if (!hasTrack) {
+      await playQueue([track]);
+      return;
+    }
+    _insertTrackAt(_queue.length, track, afterCurrent: false);
+    notifyListeners();
+  }
+
+  /// Remove the track at [queueIndex]. Removing the current track
+  /// starts the next track in the playback order; removing any
+  /// other track leaves playback untouched. Removing the last
+  /// track stops playback and clears the queue.
+  Future<void> removeAt(int queueIndex) async {
+    if (queueIndex < 0 || queueIndex >= _queue.length) return;
+    final removedIsCurrent = queueIndex == _index;
+    if (removedIsCurrent) await _savePosition();
+    final removedPlayPos = _playOrder.indexOf(queueIndex);
+    _queue.removeAt(queueIndex);
+    _playOrder.removeAt(removedPlayPos);
+    for (var i = 0; i < _playOrder.length; i++) {
+      if (_playOrder[i] > queueIndex) _playOrder[i]--;
+    }
+    if (_queue.isEmpty) {
+      await _backend?.stop();
+      _index = -1;
+      _playPos = 0;
+      _playing = false;
+      _hasOpened = false;
+      _pendingSeek = null;
+      _position = Duration.zero;
+      notifyListeners();
+      return;
+    }
+    if (removedIsCurrent) {
+      if (_playPos >= _playOrder.length) {
+        _playPos = _playOrder.length - 1;
+      }
+      _position = Duration.zero;
+      await _playAtPlayPos(_playPos);
+    } else {
+      if (removedPlayPos < _playPos) _playPos--;
+      _index = _playOrder[_playPos];
+      notifyListeners();
+    }
+  }
+
+  /// Move the track at [oldQueueIndex] to [newQueueIndex] in the
+  /// user's queue (final positions, after removal). The playback
+  /// order follows the move, so the current track keeps playing and
+  /// shuffle order is preserved.
+  void moveQueue(int oldQueueIndex, int newQueueIndex) {
+    if (oldQueueIndex == newQueueIndex) return;
+    if (oldQueueIndex < 0 || oldQueueIndex >= _queue.length) return;
+    if (newQueueIndex < 0 || newQueueIndex >= _queue.length) return;
+    final track = _queue.removeAt(oldQueueIndex);
+    _queue.insert(newQueueIndex, track);
+    _playOrder = _playOrder.map((i) {
+      if (i == oldQueueIndex) return newQueueIndex;
+      if (oldQueueIndex < newQueueIndex) {
+        if (i > oldQueueIndex && i <= newQueueIndex) return i - 1;
+      } else {
+        if (i >= newQueueIndex && i < oldQueueIndex) return i + 1;
+      }
+      return i;
+    }).toList();
+    _index = _playOrder[_playPos];
+    notifyListeners();
+  }
+
+  /// Clear the queue down to the current track, which keeps
+  /// playing. A no-op with no current track.
+  void clearQueue() {
+    final current = currentTrack;
+    if (current == null) return;
+    _queue = [current];
+    _playOrder = [0];
+    _index = 0;
+    _playPos = 0;
+    notifyListeners();
+  }
 
   Future<void> togglePlay() async {
     if (!hasTrack) return;
@@ -335,7 +654,28 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
   }
 
   Future<void> next() async {
-    if (_index + 1 >= _queue.length) {
+    if (!hasTrack) return;
+    if (_repeat == MusicRepeatMode.one) {
+      // Repeat-one: restart the current track instead of moving on.
+      await seek(Duration.zero);
+      if (!_playing) {
+        try {
+          await _coordinator.musicStarted();
+          await _ensureBackend().play();
+        } catch (e) {
+          _recordError(e);
+        }
+      }
+      return;
+    }
+    if (_playPos + 1 >= _playOrder.length) {
+      if (_repeat == MusicRepeatMode.all && _playOrder.isNotEmpty) {
+        // Repeat-all: loop back to the start of the playback order
+        // (the shuffled order when shuffle is on).
+        await _savePosition();
+        await _playAtPlayPos(0);
+        return;
+      }
       // End of the queue: save the position and stop the backend
       // instead of just flipping the flag — otherwise the backend
       // keeps its completed state and the resume position is lost.
@@ -346,33 +686,25 @@ class PlayerService extends ChangeNotifier implements PausablePlayback {
       return;
     }
     await _savePosition();
-    _index++;
-    try {
-      if (await _openCurrent()) {
-        await _coordinator.musicStarted();
-        await _ensureBackend().play();
-      }
-    } catch (e) {
-      _recordError(e);
-    }
+    await _playAtPlayPos(_playPos + 1);
   }
 
   Future<void> previous() async {
-    if (_position > const Duration(seconds: 3)) {
+    if (_position > const Duration(seconds: 3) ||
+        _repeat == MusicRepeatMode.one) {
       await seek(Duration.zero);
       return;
     }
-    if (_index <= 0) return;
-    await _savePosition();
-    _index--;
-    try {
-      if (await _openCurrent()) {
-        await _coordinator.musicStarted();
-        await _ensureBackend().play();
+    if (_playPos <= 0) {
+      if (_repeat == MusicRepeatMode.all && _playOrder.length > 1) {
+        // Repeat-all: wrap to the last track in the playback order.
+        await _savePosition();
+        await _playAtPlayPos(_playOrder.length - 1);
       }
-    } catch (e) {
-      _recordError(e);
+      return;
     }
+    await _savePosition();
+    await _playAtPlayPos(_playPos - 1);
   }
 
   Future<void> seek(Duration position) async {
